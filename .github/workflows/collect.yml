@@ -46,6 +46,12 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Supabase 깨우기 (무료 플랜은 7일 미사용 시 일시정지 → 매일 한 번 요청)
+        run: |
+          curl -s -o /dev/null -w "Supabase 응답 %{http_code}\n" \
+            -H "apikey: sb_publishable_hGyTpmyMtUuG_4WPaiZUhw_TMzMe0km" \
+            "https://ieybaftpkokjyntzogoq.supabase.co/rest/v1/remarks?select=id&limit=1" || true
+
       - name: 수집
         env:
           SERVICE_KEY: ${{ secrets.SERVICE_KEY }}
