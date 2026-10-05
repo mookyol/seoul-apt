@@ -30,7 +30,7 @@
         <option value="jr">색: 전세가율</option>
         <option value="kp">색: 주변 대비 가격</option>
       </select>
-      <label class="chk"><input type="checkbox" id="m-supply"> 입주예정</label>
+      <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정</label>
     </div>
     <div class="legend" id="legend"></div>
   </section>
@@ -95,7 +95,26 @@
   </section>
 
   <section id="tab-supply" class="tab">
-    <div class="count">🏗️ 입주 예정 물량 <small>(청약홈 일반분양 기준 · 조합원 물량 제외)</small></div>
+    <div class="seg" id="sub-seg">
+      <button data-v="sched" class="on">📅 청약 일정</button>
+      <button data-v="move">🏗️ 입주 예정</button>
+    </div>
+    <div class="filters" id="sub-filters">
+      <select id="s-when">
+        <option value="active">진행 중 · 예정</option>
+        <option value="6m">최근 6개월</option>
+        <option value="all">전체 (2020~)</option>
+      </select>
+      <select id="s-kind">
+        <option value="">일반분양 + 무순위</option>
+        <option value="APT">일반분양만</option>
+        <option value="무순위">무순위·잔여세대만</option>
+      </select>
+      <select id="s-sort">
+        <option value="date">일정 순</option>
+        <option value="mg">예상 차익 큰 순</option>
+      </select>
+    </div>
     <div id="supply"></div>
   </section>
 
@@ -111,7 +130,7 @@
 <nav class="tabs">
   <button data-tab="map" class="active"><span>🗺️</span>지도</button>
   <button data-tab="list"><span>📋</span>순위</button>
-  <button data-tab="supply"><span>🏗️</span>공급</button>
+  <button data-tab="supply"><span>🏠</span>청약</button>
   <button data-tab="fav"><span>⭐</span>관심</button>
 </nav>
 

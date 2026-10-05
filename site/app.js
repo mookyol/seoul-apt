@@ -100,9 +100,17 @@ async function init() {
   buildWeightPanel();
 
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
-  $$(".filters select").forEach((s) => s.addEventListener("change", () => { saveFilters(); renderList(); }));
+  $$("#tab-list .filters select").forEach((s) => s.addEventListener("change", () => { saveFilters(); renderList(); }));
   $("#f-more").addEventListener("click", () => ($("#more").hidden = !$("#more").hidden));
-  $("#q").addEventListener("input", () => { if (!$("#tab-list").classList.contains("active")) showTab("list"); renderList(); });
+  $("#q").addEventListener("input", () => {
+    if ($("#tab-supply").classList.contains("active")) return renderSupply();   // 청약 탭에서는 청약 공고 검색
+    if (!$("#tab-list").classList.contains("active")) showTab("list");
+    renderList();
+  });
+  $$("#sub-seg button").forEach((b) => b.addEventListener("click", () => {
+    $$("#sub-seg button").forEach((x) => x.classList.toggle("on", x === b)); renderSupply();
+  }));
+  $$("#sub-filters select").forEach((s) => s.addEventListener("change", renderSupply));
   $("#sheet-bg").addEventListener("click", () => history.back());
   $("#m-color").addEventListener("change", () => { store.set("mcolor", $("#m-color").value); drawMarkers(); });
   $("#m-supply").addEventListener("change", toggleSupplyLayer);
@@ -123,8 +131,13 @@ async function init() {
   // 로그인 상태가 바뀌면 (로그인·가입·리마크 작성) 화면 갱신
   cloud.onChange(() => {
     renderAuth(); renderList(); renderFav(); drawMarkers();
-    const m = location.hash.match(/c=([^&]+)/);
+    const m = location.hash.match(/^#c=([^&]+)/);
     if (m) renderRemarks(decodeURIComponent(m[1]));
+    else if (location.hash.startsWith("#s=") && state.subByNo) {
+      const s = state.subByNo[decodeURIComponent(location.hash.slice(3))];
+      if (s) renderRemarks("청약-" + s.no);
+    }
+    if ($("#tab-supply").classList.contains("active")) renderSupply();
     if (location.hash === "#join" && cloud.ready) history.back();
   });
   renderAuth();
@@ -209,49 +222,151 @@ function drawMarkers() {
       .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("");
 }
 
-// ---------- 입주물량 ----------
-async function loadSupply() {
-  if (state.supply) return state.supply;
-  if (!state.meta.hasSupply) return (state.supply = []);
-  try { state.supply = await (await fetch("data/supply.json")).json(); } catch { state.supply = []; }
-  return state.supply;
+// ---------- 청약 · 입주예정 ----------
+const today = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);   // 한국 날짜
+const dday = (d) => Math.round((new Date(d) - new Date(today())) / 86400e3);
+const md = (d) => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "–";
+const ym = (v) => v ? `${v.slice(0, 4)}.${v.slice(4, 6)}` : "–";
+function subStatus(s) {
+  const t = today(), d = s.dt;
+  const start = d.특공접수일 || d.접수시작 || d["1순위해당지역"];
+  const end = d.접수종료 || d["2순위"] || d["1순위기타지역"] || d["1순위해당지역"] || start;
+  if (start && t < start) return { k: "upcoming", label: `접수예정 D-${dday(start)}`, next: start };
+  if (start && t <= end) return { k: "open", label: "접수중", next: end };
+  if (d.당첨자발표일 && t <= d.당첨자발표일) return { k: "wait", label: `발표 ${md(d.당첨자발표일)}`, next: d.당첨자발표일 };
+  if (d.계약종료 && t <= d.계약종료) return { k: "contract", label: "계약중", next: d.계약종료 };
+  return { k: "done", label: "마감", next: d.모집공고일 };
+}
+async function loadSubs() {
+  if (state.subs) return state.subs;
+  if (!state.meta.hasSubs) return (state.subs = []);
+  try { state.subs = await (await fetch("data/subs.json")).json(); } catch { state.subs = []; }
+  state.subByNo = Object.fromEntries(state.subs.map((s) => [s.k + s.no, s]));
+  return state.subs;
+}
+const subKey = (s) => s.k + s.no;
+const marginHTML = (s) => s.mg == null ? `<span class="note">주변 시세 비교 불가</span>`
+  : `<span class="${cls(s.mg)}">주변${s.nnew ? " 신축" : ""} 대비 ${s.mg > 0 ? "차익" : "고분양"} ${pct(s.mg)}</span>` +
+    (s.m84 != null ? `<br><span class="note">84㎡ 기준 ${s.m84 > 0 ? "+" : ""}${won(s.m84)}</span>` : "");
+function subItemHTML(s) {
+  const st = subStatus(s);
+  return `<li class="item" data-s="${esc(subKey(s))}">
+    <div class="nm"><span class="kbadge ${s.k === "무순위" ? "k2" : ""}">${s.k === "무순위" ? "무순위" : esc(s.pv || "APT")}</span>
+      ${esc(s.n)}${remarkBadge("청약-" + s.no)}</div>
+    <div class="px"><span class="st st-${st.k}">${st.label}</span></div>
+    <div class="sub">${esc(s.g)} · ${s.h ? s.h.toLocaleString() + "세대" : ""} · 입주 ${ym(s.mv)}
+      ${s.reg.map((r) => `<span class="tag">${r}</span>`).join("")}<br>
+      ${s.s84 ? "84㎡ " + won(s.s84) : s.s59 ? "59㎡ " + won(s.s59) : s.sppp ? "평당 " + won(s.sppp) : ""}
+      ${s.dt.당첨자발표일 ? ` · 발표 ${md(s.dt.당첨자발표일)}` : ""}</div>
+    <div class="chg">${marginHTML(s)}</div>
+  </li>`;
+}
+async function renderSupply() {
+  const subs = await loadSubs();
+  if (!subs.length) { $("#supply").innerHTML = `<div class="empty">청약 데이터가 아직 없습니다</div>`; return; }
+  const view = $("#sub-seg .on").dataset.v;
+  $("#sub-filters").hidden = view !== "sched";
+  const t = today();
+  const q = $("#q").value.trim().toLowerCase();
+  const match = (s) => !q || [s.n, s.g, s.a].some((x) => x && x.toLowerCase().includes(q));
+
+  if (view === "move") {   // 입주 예정: 일반분양 공고 기준 (무순위는 같은 단지라 제외)
+    const ym0 = t.slice(0, 4) + t.slice(5, 7);
+    const xs = subs.filter((s) => s.k === "APT" && s.mv >= ym0 && match(s));
+    const byGu = {}, years = {};
+    for (const s of xs) { byGu[s.g] = (byGu[s.g] || 0) + s.h; (years[s.mv.slice(0, 4)] ??= []).push(s); }
+    $("#supply").innerHTML = `<div class="count">일반분양 세대수 기준 · 재건축 조합원 물량은 빠져 실제 입주 세대보다 적습니다</div>
+      <div class="sup-gu">${Object.entries(byGu).sort((a, b) => b[1] - a[1])
+        .map(([g, n]) => `<span>${esc(g)} <b>${n.toLocaleString()}</b></span>`).join("")}</div>` +
+      Object.entries(years).sort().map(([y, ys]) => `
+        <div class="sup-year">${y}년 입주 · ${ys.reduce((a, s) => a + s.h, 0).toLocaleString()}세대</div>
+        <ol class="list">${ys.sort((a, b) => a.mv.localeCompare(b.mv)).map(subItemHTML).join("")}</ol>`).join("");
+  } else {
+    const when = $("#s-when").value, kind = $("#s-kind").value, sort = $("#s-sort").value;
+    const since = new Date(Date.now() - 183 * 86400e3).toISOString().slice(0, 10);
+    let xs = subs.filter((s) => match(s) && (!kind || s.k === kind) &&
+      (when === "all" || (when === "6m" ? (s.dt.모집공고일 || "") >= since : subStatus(s).k !== "done")));
+    xs = sort === "mg" ? xs.sort((a, b) => (b.mg ?? -1e9) - (a.mg ?? -1e9))
+      : xs.sort((a, b) => {
+          const sa = subStatus(a), sb = subStatus(b);
+          if ((sa.k === "done") !== (sb.k === "done")) return sa.k === "done" ? 1 : -1;
+          return sa.k === "done" ? sb.next.localeCompare(sa.next) : sa.next.localeCompare(sb.next);
+        });
+    // 앞으로 2주 일정
+    const evs = [];
+    const until = new Date(Date.now() + 14 * 86400e3).toISOString().slice(0, 10);
+    for (const s of subs) for (const [k, d] of Object.entries(s.dt))
+      if (d >= t && d <= until && k !== "모집공고일" && k !== "접수종료" && k !== "계약종료") evs.push([d, k, s]);
+    evs.sort((a, b) => a[0].localeCompare(b[0]));
+    $("#supply").innerHTML =
+      (evs.length ? `<div class="card cal"><h3>🗓️ 앞으로 2주</h3>${evs.slice(0, 12).map(([d, k, s]) =>
+        `<a class="ev" href="#s=${encodeURIComponent(subKey(s))}"><b>${md(d)}</b><span class="tag">${k.replace("해당지역", "").replace("접수일", "")}</span>${esc(s.n)}</a>`).join("")}</div>` : "") +
+      `<div class="count">${xs.length}건</div><ol class="list">${xs.slice(0, 200).map(subItemHTML).join("") ||
+        '<div class="empty">조건에 맞는 공고가 없습니다</div>'}</ol>`;
+  }
+  $$("#supply .item[data-s]").forEach((el) => el.addEventListener("click", () => (location.hash = "s=" + encodeURIComponent(el.dataset.s))));
 }
 async function toggleSupplyLayer() {
   if (state.supLayer) { state.map.removeLayer(state.supLayer); state.supLayer = null; }
   if (!$("#m-supply").checked) return;
-  const sup = await loadSupply();
+  const subs = await loadSubs();
+  const ym0 = today().slice(0, 4) + today().slice(5, 7);
   state.supLayer = L.layerGroup().addTo(state.map);
-  for (const s of sup) if (s.위도) {
-    L.marker([+s.위도, +s.경도], { icon: L.divIcon({ className: "sup-marker", html: "🏗️", iconSize: [22, 22] }) })
-      .bindTooltip(`${esc(s.단지명)} · 입주 ${s.입주예정월.slice(0, 4)}.${s.입주예정월.slice(4)} · ${(+s.공급세대수 || 0).toLocaleString()}세대`)
+  for (const s of subs) {
+    const st = subStatus(s);
+    const show = st.k !== "done" || (s.k === "APT" && s.mv >= ym0);
+    if (!show || !s.la) continue;
+    L.marker([s.la, s.lo], { icon: L.divIcon({ className: "sup-marker", html: st.k !== "done" ? "📢" : "🏗️", iconSize: [22, 22] }) })
+      .bindTooltip(`${esc(s.n)} · ${st.k !== "done" ? st.label : "입주 " + ym(s.mv)}`)
+      .on("click", () => (location.hash = "s=" + encodeURIComponent(subKey(s))))
       .addTo(state.supLayer);
   }
-  if (!sup.length) alert("입주물량 데이터가 아직 없습니다 (청약홈 API 연결 대기 중)");
 }
-async function renderSupply() {
-  const sup = await loadSupply();
-  if (!sup.length) {
-    $("#supply").innerHTML = `<div class="empty">입주물량 데이터가 아직 없습니다.<br>청약홈 API 연결 후 자동으로 채워집니다.</div>`;
-    return;
-  }
-  const byGu = {};
-  for (const s of sup) byGu[s.구] = (byGu[s.구] || 0) + (+s.공급세대수 || 0);
-  const years = {};
-  for (const s of sup) (years[s.입주예정월.slice(0, 4)] ??= []).push(s);
-  $("#supply").innerHTML =
-    `<div class="sup-gu">${Object.entries(byGu).sort((a, b) => b[1] - a[1])
-      .map(([g, n]) => `<span>${esc(g)} <b>${n.toLocaleString()}</b></span>`).join("")}</div>` +
-    Object.entries(years).sort().map(([y, xs]) => `
-      <div class="sup-year">${y}년 입주 · ${xs.reduce((a, s) => a + (+s.공급세대수 || 0), 0).toLocaleString()}세대</div>
-      <ol class="list">${xs.map((s) => `<li class="item" data-la="${s.위도}" data-lo="${s.경도}">
-        <div class="nm">${esc(s.단지명)}</div><div class="px">${(+s.공급세대수 || 0).toLocaleString()}세대</div>
-        <div class="sub">${esc(s.주소)}<br>${esc(s.시공사)}</div>
-        <div class="chg">${s.입주예정월.slice(0, 4)}.${s.입주예정월.slice(4)}</div></li>`).join("")}</ol>`).join("");
-  $$("#supply .item").forEach((el) => el.addEventListener("click", () => {
-    if (!el.dataset.la) return;
-    $("#m-supply").checked = true; toggleSupplyLayer(); showTab("map");
-    state.map.setView([+el.dataset.la, +el.dataset.lo], 15);
-  }));
+async function renderSub(key) {
+  await loadSubs();
+  const s = state.subByNo[key];
+  if (!s) return closeSheet();
+  const st = subStatus(s);
+  const steps = [["모집공고일", "모집공고"], ["특공접수일", "특별공급"], ["1순위해당지역", "1순위 (해당지역)"],
+    ["1순위기타지역", "1순위 (기타지역)"], ["2순위", "2순위"], ["접수시작", "청약 접수"], ["당첨자발표일", "당첨자 발표"],
+    ["계약시작", "계약"]].filter(([k]) => s.dt[k]);
+  const t = today();
+  openSheet(`
+    <div class="sh-head">
+      <div style="flex:1"><h2>${esc(s.n)}</h2><div class="addr">${esc(s.a)}</div></div>
+      <button class="icon-btn" data-close aria-label="닫기">✕</button>
+    </div>
+    <div class="sh-actions">
+      ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">📄 청약홈 공고</a>` : ""}
+      ${s.hp ? `<a href="${esc(s.hp)}" target="_blank" rel="noopener">🏠 분양 홈페이지</a>` : ""}
+      ${s.la ? `<a href="https://map.kakao.com/link/map/${encodeURIComponent(s.n)},${s.la},${s.lo}" target="_blank" rel="noopener">🗺️ 위치</a>` : ""}
+    </div>
+    <div class="stats">
+      <div class="stat"><small>상태</small><b><span class="st st-${st.k}">${st.label}</span></b></div>
+      <div class="stat"><small>구분</small><b>${s.k === "무순위" ? "무순위" : esc(s.pv || "APT")}</b></div>
+      <div class="stat"><small>공급</small><b>${s.h.toLocaleString()}세대</b></div>
+      <div class="stat"><small>84㎡ 분양가</small><b>${won(s.s84)}</b></div>
+      <div class="stat"><small>59㎡ 분양가</small><b>${won(s.s59)}</b></div>
+      <div class="stat"><small>입주 예정</small><b>${ym(s.mv)}</b></div>
+    </div>
+    ${s.reg.length ? `<div class="note" style="margin:-4px 0 10px">규제: ${s.reg.join(" · ")} — 전매제한·실거주의무는 모집공고문에서 꼭 확인하세요</div>` : ""}
+    <div class="card"><h3>💰 분양가 vs 주변 시세</h3>
+      ${s.mg == null ? `<div class="note">주변 1km 안에 비교할 거래가 부족합니다</div>` : `
+      <div class="kmsg">주변 1km ${s.nnew ? "<b>10년 이내 신축</b>" : "단지"} ${s.nn}곳 평당 시세 <b>${won(s.nppp)}</b>
+        vs 분양 평당가 <b>${won(s.sppp)}</b> → <b class="${cls(s.mg)}">${s.mg > 0 ? "시세가 " + pct(s.mg) + " 높음 (차익 기대)" : "분양가가 시세보다 높음"}</b></div>
+      ${s.m84 != null ? `<div class="kmsg">84㎡ 기준: 주변 시세 ${won(s.n84)} − 분양가 ${won(s.s84)} = <b class="${cls(s.m84)}">${s.m84 > 0 ? "+" : ""}${won(s.m84)}</b></div>` : ""}
+      <table class="near">${s.near.map((o) => `<tr data-c="${o.c}"><td class="nm">${esc(o.n)}</td><td>${o.y ?? ""}년</td><td>${o.km}km</td><td>${o.p84 ? "84㎡ " + won(o.p84) : "평당 " + won(o.p)}</td></tr>`).join("")}</table>
+      <div class="note">평당가는 전용면적 기준 (시세와 같은 기준). 최고 분양가 기준이며 옵션·발코니 확장비는 제외됩니다.</div>`}
+    </div>
+    <div class="card"><h3>📅 일정</h3><ol class="timeline">${steps.map(([k, l]) =>
+      `<li class="${s.dt[k] < t ? "past" : s.dt[k] === t ? "now" : ""}"><b>${s.dt[k]}</b> ${l}${s.dt[k] >= t ? ` <span class="note">D-${dday(s.dt[k])}</span>` : ""}</li>`).join("")}</ol></div>
+    <div class="card"><h3>🏷️ 주택형별 분양가</h3>
+      <table><tr><th>타입</th><th>일반</th><th>특공</th><th>최고 분양가</th><th>평당(전용)</th></tr>
+      ${s.ty.sort((a, b) => a[1] - b[1]).map(([ty, a, g, sp, p]) => `<tr><td>${esc(ty.replace(/^0+/, ""))}</td><td>${g}</td><td>${sp}</td><td>${won(p)}</td><td>${won(Math.round(p / a * 3.305785))}</td></tr>`).join("")}
+      </table>${s.cm != null ? `<div class="kmsg" style="margin-top:8px">최고 경쟁률 <b>${s.cm} : 1</b></div>` : ""}</div>
+    <div class="card" id="remarks"></div>`);
+  $$("#sheet .near tr[data-c]").forEach((tr) => (tr.onclick = () => openDetail(tr.dataset.c)));
+  renderRemarks("청약-" + s.no);
 }
 
 // ---------- 순위 ----------
@@ -325,11 +440,12 @@ function renderCmpBar() {
   $("#cmp-bar").textContent = `📊 단지 비교 (${n})`;
 }
 
-// ---------- 라우팅 (#c=단지코드 / #cmp) ----------
+// ---------- 라우팅 (#c=단지코드 / #s=청약공고 / #cmp / #join) ----------
 function openDetail(code) { location.hash = "c=" + encodeURIComponent(code); }
 function route() {
-  const m = location.hash.match(/c=([^&]+)/);
+  const m = location.hash.match(/^#c=([^&]+)/);
   if (m && state.byCode[decodeURIComponent(m[1])]) renderDetail(decodeURIComponent(m[1]));
+  else if (location.hash.startsWith("#s=")) renderSub(decodeURIComponent(location.hash.slice(3)));
   else if (location.hash === "#cmp" && cmps().length) renderCompare();
   else if (location.hash === "#join") renderJoin();
   else closeSheet();
@@ -466,12 +582,18 @@ const ago = (iso) => {
   return s < 3600 ? Math.max(1, Math.floor(s / 60)) + "분 전" : s < 86400 ? Math.floor(s / 3600) + "시간 전"
     : s < 86400 * 30 ? Math.floor(s / 86400) + "일 전" : iso.slice(0, 10);
 };
+function remarkTarget(code) {   // 리마크가 달린 단지 또는 청약 공고 링크
+  if (state.byCode[code]) return `<a class="rm-cx" href="#c=${encodeURIComponent(code)}">${esc(state.byCode[code].n)}</a>`;
+  const no = code.startsWith("청약-") ? code.slice(3) : null;
+  const s = no && (state.subs || []).find((x) => x.no === no);
+  return s ? `<a class="rm-cx" href="#s=${encodeURIComponent(subKey(s))}">🏠 ${esc(s.n)} (청약)</a>` : "";
+}
 const remarkHTML = (r, withComplex) => `
   <li class="rm" data-id="${r.id}">
     <div class="rm-head"><span class="rm-kind">${REMARK_KINDS[r.kind] || "💬"} ${esc(r.kind)}</span>
       <b>${esc(r.members?.nickname ?? "?")}</b> <span class="note">${ago(r.created_at)}</span>
       ${r.user_id === cloud.user?.id ? `<button class="rm-del" data-del="${r.id}">삭제</button>` : ""}</div>
-    ${withComplex && state.byCode[r.complex_code] ? `<a class="rm-cx" href="#c=${encodeURIComponent(r.complex_code)}">${esc(state.byCode[r.complex_code].n)}</a>` : ""}
+    ${withComplex ? remarkTarget(r.complex_code) : ""}
     ${r.body ? `<div class="rm-body">${esc(r.body)}</div>` : ""}
   </li>`;
 function bindRemarkDeletes(root, after) {
@@ -517,7 +639,7 @@ async function renderRemarks(code) {
 async function renderFeed() {
   const box = $("#feed");
   if (!cloud.ready) { box.innerHTML = ""; return; }
-  const rs = await cloud.recent(30);
+  const [rs] = await Promise.all([cloud.recent(30), loadSubs()]);
   box.innerHTML = `<div class="count">👥 최근 지인 리마크</div>` +
     (rs.length ? `<ol class="rms feed">${rs.map((r) => remarkHTML(r, true)).join("")}</ol>` : `<div class="empty">아직 리마크가 없습니다</div>`);
   bindRemarkDeletes(box, renderFeed);

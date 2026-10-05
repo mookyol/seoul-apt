@@ -136,6 +136,28 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .sb i { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--brand) var(--v), var(--line) var(--v)); }
 .sb b { color: var(--text); font-weight: 600; min-width: 18px; text-align: right; }
 .lscard h3 { display: flex; align-items: baseline; gap: 6px; }
+.seg { display: flex; margin: 12px 16px 0; background: var(--card); border-radius: 12px; padding: 4px; }
+.seg button { flex: 1; border: 0; background: none; border-radius: 9px; padding: 8px; font-weight: 600; color: var(--sub); cursor: pointer; }
+.seg button.on { background: var(--brand); color: #fff; }
+.kbadge { display: inline-block; font-size: 11px; border-radius: 6px; padding: 0 5px; margin-right: 4px; vertical-align: 1px;
+  background: #e0e7ff; color: #3730a3; }
+.kbadge.k2 { background: #fef3c7; color: #92400e; }
+.st { display: inline-block; font-size: 12px; border-radius: 6px; padding: 1px 7px; font-weight: 700; }
+.st-upcoming { background: #dbeafe; color: #1d4ed8; }
+.st-open { background: #dc2626; color: #fff; }
+.st-wait { background: #fef3c7; color: #92400e; }
+.st-contract { background: #ede9fe; color: #6d28d9; }
+.st-done { background: var(--line); color: var(--sub); }
+.cal { margin: 12px 12px 0; }
+.ev { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); color: var(--text);
+  text-decoration: none; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev b { min-width: 42px; color: var(--brand); }
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { padding: 6px 0 6px 18px; border-left: 2px solid var(--brand); position: relative; font-size: 14px; }
+.timeline li::before { content: ""; position: absolute; left: -6px; top: 11px; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); }
+.timeline li.past { color: var(--sub); border-color: var(--line); }
+.timeline li.past::before { background: var(--line); }
+.timeline li.now::before { background: var(--up); box-shadow: 0 0 0 3px #fecaca; }
 .sup-gu { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; }
 .sup-gu span { background: var(--card); border-radius: 8px; padding: 4px 8px; font-size: 13px; }
 .sup-year { padding: 12px 16px 4px; font-weight: 700; }

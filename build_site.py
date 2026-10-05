@@ -84,6 +84,64 @@ def load_jeonse():
     return out
 
 
+def build_subscriptions(summary):
+    """청약 공고 + 주택형별 분양가 + 주변 시세 비교(예상 차익)"""
+    sub_csv = ROOT / "data" / "subscription.csv"
+    if not sub_csv.exists():
+        return []
+    types = defaultdict(list)
+    for t in read_csv(ROOT / "data" / "subscription_types.csv"):
+        if t["최고분양가"] and t["전용면적"]:
+            types[t["주택관리번호"]].append(t)
+    cmpet = defaultdict(list)
+    cm_csv = ROOT / "data" / "subscription_cmpet.csv"
+    if cm_csv.exists():
+        for c in read_csv(cm_csv):
+            try:
+                cmpet[c["주택관리번호"]].append(float(c["경쟁률"]))
+            except ValueError:
+                pass
+
+    this_year = date.today().year
+    priced = [s for s in summary if s["p"]]
+    out = []
+    for r in read_csv(sub_csv):
+        ts = types.get(r["주택관리번호"], [])
+        ty = [[t["주택형"].strip(), float(t["전용면적"]), int(t["일반공급세대"] or 0), int(t["특별공급세대"] or 0),
+               int(t["최고분양가"])] for t in ts]
+        sppp = median([p / a * PYEONG for _, a, _, _, p in ty if a > 0])  # 분양 평당가 (전용 기준 — 시세와 같은 기준)
+        s84 = median([p for _, a, _, _, p in ty if 76 <= a < 95])
+        s59 = median([p for _, a, _, _, p in ty if 50 <= a < 66])
+
+        # 주변 시세: 1km 안 10년 이내 신축 우선, 3개 미만이면 1km 안 전체
+        nb, la, lo = [], float(r["위도"] or 0), float(r["경도"] or 0)
+        if la:
+            near = [(km((la, lo), (o["la"], o["lo"])), o) for o in priced
+                    if abs(o["la"] - la) < 0.012 and abs(o["lo"] - lo) < 0.015]
+            near = sorted([x for x in near if x[0] <= 1.0], key=lambda x: x[0])
+            new = [x for x in near if x[1]["y"] and this_year - x[1]["y"] <= 10]
+            nb, only_new = (new, True) if len(new) >= 3 else (near, False)
+        n_ppp = median([o["p"] for _, o in nb])
+        n84 = median([o["p84"] for _, o in nb if o["p84"]])
+        out.append({
+            "k": r["구분"], "no": r["주택관리번호"], "n": r["단지명"], "a": r["주소"], "g": r["구"],
+            "h": int(r["공급세대수"] or 0), "pv": r["민영국민"],
+            "dt": {k: r[k] for k in ("모집공고일", "특공접수일", "1순위해당지역", "1순위기타지역", "2순위",
+                                     "접수시작", "접수종료", "당첨자발표일", "계약시작", "계약종료") if r[k]},
+            "mv": r["입주예정월"], "cs": r["시공사"], "hp": r["홈페이지"], "url": r["공고URL"],
+            "reg": [n for n, k in (("분양가상한제", "분양가상한제"), ("투기과열", "투기과열지구"), ("조정대상", "조정대상지역"))
+                    if r[k] == "Y"],
+            "la": la or None, "lo": lo or None, "ty": ty, "s84": s84, "s59": s59, "sppp": sppp,
+            "nppp": n_ppp, "n84": n84, "nnew": only_new if nb else None, "nn": len(nb),
+            "mg": change(n_ppp, sppp),                                   # 주변 시세가 분양가보다 몇 % 높은가
+            "m84": n84 - s84 if n84 and s84 else None,                   # 84㎡ 기준 예상 차익(만원)
+            "near": [{"c": o["c"], "n": o["n"], "km": round(dk, 2), "y": o["y"], "p84": o["p84"], "p": o["p"]}
+                     for dk, o in nb[:6]],
+            "cm": round(max(cmpet[r["주택관리번호"]]), 1) if cmpet.get(r["주택관리번호"]) else None,
+        })
+    return out
+
+
 def main():
     trades = load_trades()
     if not trades:
@@ -201,11 +259,10 @@ def main():
     meta = {"updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
             "dataTo": last.isoformat(), "count": len(summary), "hasRent": bool(jeonse)}
 
-    supply_csv = ROOT / "data" / "supply.csv"
-    if supply_csv.exists():
-        sup = [r for r in read_csv(supply_csv) if r.get("입주예정월", "") >= date.today().strftime("%Y%m")]
-        (OUT / "supply.json").write_text(json.dumps(sup, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        meta["hasSupply"] = True
+    subs = build_subscriptions(summary)
+    if subs:
+        (OUT / "subs.json").write_text(json.dumps(subs, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        meta["hasSubs"] = True
 
     (OUT / "complexes.json").write_text(
         json.dumps({"meta": meta, "items": summary}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
