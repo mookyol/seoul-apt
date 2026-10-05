@@ -170,6 +170,16 @@ async function init() {
   });
   renderAuth();
   cloud.init().catch((e) => console.warn("로그인 서버 연결 실패", e));
+  // 가이드 버튼 — 화면 파일(index.html)이 캐시된 옛 버전이어도 항상 보이도록 코드에서 보장
+  if (!document.querySelector('a[href="#guide"]')) {
+    $("#auth-btn").insertAdjacentHTML("beforebegin", `<a href="#guide" class="auth-btn" style="text-decoration:none;margin-right:4px">📖 가이드</a>`);
+  }
+}
+
+// 새 버전이 배포돼 서비스워커가 바뀌면 한 번 새로고침해서 화면·코드 버전을 맞춤
+if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
 }
 
 function saveFilters() {

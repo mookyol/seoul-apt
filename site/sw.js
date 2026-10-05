@@ -1,5 +1,5 @@
 // 오프라인·빠른 로딩용: 화면 파일은 캐시, 데이터는 항상 최신 우선
-const CACHE = "seoul-apt-v11";
+const CACHE = "seoul-apt-v12";
 const SHELL = ["./", "index.html", "app.css", "app.js", "cloud.js", "config.js", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (e) => {
