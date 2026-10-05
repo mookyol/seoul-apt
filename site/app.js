@@ -71,6 +71,7 @@ function computeScores() {
   };
   const w = weights();
   for (const i of state.items) {
+    if (!i.la) { i.sH = i.sE = i.sS = i.ls = null; continue; }   // 위치 정보 수집 전 단지는 점수 보류
     i.sH = scoreSize(i.h); i.sE = scoreEdu(i); i.sS = scoreStation(i.sd, i.sl);
     let sum = 0, wt = 0;
     for (const [s, k] of [[i.sH, "h"], [i.sE, "e"], [i.sS, "s"]]) if (s != null) { sum += s * w[k]; wt += w[k]; }
@@ -210,6 +211,7 @@ function drawMarkers() {
   const mode = $("#m-color").value;
   state.layer.clearLayers();
   for (const it of state.items) {
+    if (!it.la) continue;
     const r = it.h ? Math.min(4 + Math.sqrt(it.h) / 6, 14) : 4;
     const rm = cloud.counts[it.c];   // 지인 리마크가 있는 단지는 굵은 테두리
     L.circleMarker([it.la, it.lo], { radius: r, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: colorOf(mode, it[mode]), fillOpacity: 0.85 })
@@ -257,7 +259,8 @@ function subItemHTML(s) {
     <div class="sub">${esc(s.g)} · ${s.h ? s.h.toLocaleString() + "세대" : ""} · 입주 ${ym(s.mv)}
       ${s.reg.map((r) => `<span class="tag">${r}</span>`).join("")}<br>
       ${s.s84 ? "84㎡ " + won(s.s84) : s.s59 ? "59㎡ " + won(s.s59) : s.sppp ? "평당 " + won(s.sppp) : ""}
-      ${s.dt.당첨자발표일 ? ` · 발표 ${md(s.dt.당첨자발표일)}` : ""}</div>
+      ${s.dt.당첨자발표일 ? ` · 발표 ${md(s.dt.당첨자발표일)}` : ""}
+      ${s.cm != null ? `<br>🔥 경쟁률 ${s.cm}:1${s.sc != null ? ` · 최저 ${s.sc}점` : ""}` : ""}</div>
     <div class="chg">${marginHTML(s)}</div>
   </li>`;
 }
@@ -287,6 +290,8 @@ async function renderSupply() {
     let xs = subs.filter((s) => match(s) && (!kind || s.k === kind) &&
       (when === "all" || (when === "6m" ? (s.dt.모집공고일 || "") >= since : subStatus(s).k !== "done")));
     xs = sort === "mg" ? xs.sort((a, b) => (b.mg ?? -1e9) - (a.mg ?? -1e9))
+      : sort === "cm" ? xs.sort((a, b) => (b.cm ?? -1) - (a.cm ?? -1))
+      : sort === "sc" ? xs.sort((a, b) => (a.sc ?? 1e9) - (b.sc ?? 1e9))
       : xs.sort((a, b) => {
           const sa = subStatus(a), sb = subStatus(b);
           if ((sa.k === "done") !== (sb.k === "done")) return sa.k === "done" ? 1 : -1;
@@ -360,10 +365,15 @@ async function renderSub(key) {
     </div>
     <div class="card"><h3>📅 일정</h3><ol class="timeline">${steps.map(([k, l]) =>
       `<li class="${s.dt[k] < t ? "past" : s.dt[k] === t ? "now" : ""}"><b>${s.dt[k]}</b> ${l}${s.dt[k] >= t ? ` <span class="note">D-${dday(s.dt[k])}</span>` : ""}</li>`).join("")}</ol></div>
-    <div class="card"><h3>🏷️ 주택형별 분양가</h3>
-      <table><tr><th>타입</th><th>일반</th><th>특공</th><th>최고 분양가</th><th>평당(전용)</th></tr>
-      ${s.ty.sort((a, b) => a[1] - b[1]).map(([ty, a, g, sp, p]) => `<tr><td>${esc(ty.replace(/^0+/, ""))}</td><td>${g}</td><td>${sp}</td><td>${won(p)}</td><td>${won(Math.round(p / a * 3.305785))}</td></tr>`).join("")}
-      </table>${s.cm != null ? `<div class="kmsg" style="margin-top:8px">최고 경쟁률 <b>${s.cm} : 1</b></div>` : ""}</div>
+    <div class="card" style="overflow-x:auto"><h3>🏷️ 주택형별 분양가${s.tyc ? " · 경쟁률 · 당첨가점" : ""}</h3>
+      ${s.cm != null || s.sc != null ? `<div class="kmsg">최고 경쟁률 <b>${s.cm ?? "–"} : 1</b> · 최저 당첨가점 <b>${s.sc ?? "–"}점</b> <span class="note">(1순위 해당지역)</span></div>` : ""}
+      <table><tr><th>타입</th><th>일반</th><th>최고 분양가</th><th>평당</th>${s.tyc ? "<th>경쟁률</th><th>최저/평균</th>" : "<th>특공</th>"}</tr>
+      ${s.ty.sort((a, b) => a[1] - b[1]).map(([ty, a, g, sp, p]) => {
+        const c = s.tyc?.[ty];
+        return `<tr><td>${esc(ty.replace(/^0+/, ""))}</td><td>${g}</td><td>${won(p)}</td><td>${won(Math.round(p / a * 3.305785))}</td>
+          ${s.tyc ? `<td>${c?.[0] != null ? c[0] + ":1" : "–"}</td><td>${c?.[1] != null ? `${c[1]}/${Math.round(c[2])}` : "–"}</td>` : `<td>${sp}</td>`}</tr>`;
+      }).join("")}
+      </table>${s.tyc ? `<div class="note">가점은 84점 만점 (무주택기간 32 + 부양가족 35 + 청약통장 17)</div>` : ""}</div>
     <div class="card" id="remarks"></div>`);
   $$("#sheet .near tr[data-c]").forEach((tr) => (tr.onclick = () => openDetail(tr.dataset.c)));
   renderRemarks("청약-" + s.no);
@@ -374,8 +384,11 @@ function filtered() {
   const q = $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
         sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value;
+  // 띄어쓴 단어가 모두 들어 있으면 일치 (예: "천호동 528", "천호 삼성", "잠실 엘스")
+  const words = q.split(/\s+/).filter(Boolean);
+  const hay = (i) => (i._hay ??= [i.n, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
   const xs = state.items.filter((i) =>
-    (!q || [i.n, i.d, i.g, i.st].some((s) => s && s.toLowerCase().includes(q))) &&
+    (!words.length || words.every((w) => hay(i).includes(w))) &&
     (!gu || i.g === gu) &&
     (!budget || (i.p84 != null && i.p84 <= budget)) &&
     (!hh || (i.h ?? 0) >= hh) &&
@@ -468,8 +481,9 @@ const chartColors = () => matchMedia("(prefers-color-scheme: dark)").matches ? "
 async function renderDetail(code) {
   const i = state.byCode[code];
   const s = seen(); s[code] = i.last; store.set("seen", s);   // 새 거래 표시 해제
-  const kakaoUrl = `https://map.kakao.com/link/map/${encodeURIComponent(i.n)},${i.la},${i.lo}`;
-  const roadUrl = `https://map.kakao.com/link/roadview/${i.la},${i.lo}`;
+  const kakaoUrl = i.la ? `https://map.kakao.com/link/map/${encodeURIComponent(i.n)},${i.la},${i.lo}`
+    : `https://map.kakao.com/?q=${encodeURIComponent(`서울 ${i.g} ${i.d} ${i.j}`)}`;
+  const roadUrl = i.la ? `https://map.kakao.com/link/roadview/${i.la},${i.lo}` : kakaoUrl;
   const naverUrl = `https://m.land.naver.com/search/result/${encodeURIComponent(i.g + " " + i.n)}`;
   const kmsg = i.kp == null ? "주변(1.5km) 비교 단지가 부족합니다" :
     `주변 1.5km 단지보다 평당가가 <b class="${cls(-i.kp)}">${Math.abs(i.kp)}% ${i.kp < 0 ? "싸고" : "비싸고"}</b>` +
@@ -487,7 +501,8 @@ async function renderDetail(code) {
       <a href="${roadUrl}" target="_blank" rel="noopener">👀 로드뷰</a>
       <a href="${kakaoUrl}" target="_blank" rel="noopener">🗺️ 카카오맵</a>
     </div>
-    <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small></h3>${scoreBars(i)}</div>
+    <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small></h3>${i.la ? scoreBars(i)
+      : `<div class="note">이 단지의 위치·세대수·학군 정보를 수집 중입니다. 매일 새벽 자동 수집으로 곧 채워집니다.</div>`}</div>
     <div class="stats">
       <div class="stat"><small>84㎡ 매매</small><b>${won(i.p84)}</b></div>
       <div class="stat"><small>84㎡ 전세</small><b>${won(i.j84)}</b></div>
@@ -512,6 +527,8 @@ async function renderDetail(code) {
     <div class="card"><h3>🎒 학군</h3>
       <div>초등학교: ${esc(i.es ?? "–")} <b>${dist(i.em)}</b>${i.em != null && i.em <= 300 ? '<span class="tag">초품아</span>' : ""}</div>
       <div>중학교: ${esc(i.ms ?? "–")} <b>${dist(i.mm)}</b></div>
+      <div>고등학교: ${esc(i.hs ?? "–")} <b>${dist(i.hm)}</b></div>
+      ${i.es == null && i.a1 == null ? `<div class="note">학군 정보를 수집 중입니다 (곧 자동으로 채워집니다)</div>` : ""}
       <div>학원: 500m 안 <b>${i.a5 ?? "–"}</b>개 · 1km 안 <b>${i.a1 ?? "–"}</b>개
         ${i.a1 != null ? `<span class="note">(서울 단지 중 상위 ${100 - state.acadPct(i.a1)}%)</span>` : ""}</div></div>
     <div class="card"><h3>최근 거래</h3><table id="trades"><tr><td>불러오는 중…</td></tr></table></div>

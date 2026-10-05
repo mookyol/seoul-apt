@@ -43,9 +43,8 @@ COMPLEX_FIELDS = [
     "최근접역", "역거리m", "역세권노선수",
     "업무지구최근접", "업무지구거리km", "광화문km", "강남km", "여의도km",
     "kaptCode", "kapt단지명", "세대수", "동수", "최고층", "사용승인일", "건설사", "난방", "kapt매칭",
-    "초등학교", "초등학교m", "중학교", "중학교m", "학원수500m", "학원수1km",
+    "초등학교", "초등학교m", "중학교", "중학교m", "고등학교", "고등학교m", "학원수500m", "학원수1km", "최근거래일",
 ]
-SCHOOL_FIELDS = ["초등학교", "초등학교m", "중학교", "중학교m", "학원수500m", "학원수1km"]
 KAPT_FIELDS = ["kaptCode", "bjdCode", "kaptName", "kaptAddr", "doroJuso", "세대수", "동수",
                "최고층", "사용승인일", "건설사", "난방", "분양구분"]
 
@@ -107,7 +106,7 @@ def complexes_from_trades():
         code: {
             "단지코드": code, "구": r["구"], "법정동": r["법정동"],
             "법정동코드": r["시군구코드"] + r["법정동코드"], "지번": r["지번"],
-            "아파트명": r["아파트명"], "건축년도": r["건축년도"],
+            "아파트명": r["아파트명"], "건축년도": r["건축년도"], "최근거래일": r["계약일"],
         }
         for code, r in latest.items()
     }
@@ -215,21 +214,22 @@ def stations(kakao, lat, lon):
 
 
 def schools(kakao, lat, lon):
-    """가장 가까운 초·중학교와 학원 수 (카카오 카테고리 검색: SC4 학교, AC5 학원)"""
+    """가장 가까운 초·중·고등학교와 학원 수 (카카오 카테고리 검색: SC4 학교, AC5 학원)"""
     h = {"Authorization": "KakaoAK " + kakao}
     out = {}
-    nearest = {"초등학교": None, "중학교": None}
+    nearest = {"초등학교": None, "중학교": None, "고등학교": None}
     for page in (1, 2, 3):
         res = get_json(KAKAO_CATEGORY_URL, {"category_group_code": "SC4", "x": lon, "y": lat, "radius": 2000,
                                             "sort": "distance", "page": page}, h)
         for d in res.get("documents", []):
             kind = d["category_name"].split(">")[-1].strip()
+            kind = "고등학교" if kind.endswith("고등학교") else kind   # 특목고·자사고 등도 고등학교로
             if kind in nearest and nearest[kind] is None:
                 nearest[kind] = (d["place_name"], int(d["distance"]))
         if all(nearest.values()) or res["meta"].get("is_end", True):
             break
     for kind, v in nearest.items():
-        out[kind], out[kind + "m"] = v if v else ("", "")
+        out[kind], out[kind + "m"] = v if v else ("없음", "")
     for radius, col in ((500, "학원수500m"), (1000, "학원수1km")):
         res = get_json(KAKAO_CATEGORY_URL, {"category_group_code": "AC5", "x": lon, "y": lat,
                                             "radius": radius, "size": 1}, h)
@@ -245,6 +245,10 @@ def main():
     existing = {r["단지코드"]: r for r in read_csv(COMPLEX_CSV)}
     todo = [c for code, c in targets.items()
             if code not in existing or (retry and existing[code]["kapt매칭"] in ("매칭실패", "동에 K-apt 단지 없음"))]
+    todo.sort(key=lambda c: c["최근거래일"], reverse=True)   # 최근에 거래된 단지부터 (활발한 단지 우선)
+    for code, c in targets.items():                          # 이미 있는 단지도 최근거래일은 갱신
+        if code in existing:
+            existing[code]["최근거래일"] = c["최근거래일"]
     print(f"단지 {len(targets):,}개 중 처리할 단지 {len(todo):,}개")
 
     kapt = Kapt(service_key)
@@ -268,7 +272,9 @@ def main():
             print(f"  {i:,}/{len(todo):,} 저장", flush=True)
 
     # 학군 정보가 비어 있는 단지 채우기 (나중에 추가된 열이라 예전 단지도 여기서 처리)
-    need = [r for r in existing.values() if r.get("위도") and r.get("학원수1km") in (None, "")]
+    # (학교 이름 칸이 비어 있음 = 아직 조회 안 함. 2km 안에 학교가 없으면 "없음"으로 기록)
+    need = [r for r in existing.values() if r.get("위도") and (not r.get("학원수1km") or not r.get("고등학교"))]
+    need.sort(key=lambda r: r.get("최근거래일") or "", reverse=True)
     if need:
         print(f"학군 정보 채울 단지 {len(need):,}개")
     for i, r in enumerate(need, 1):

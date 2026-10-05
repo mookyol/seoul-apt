@@ -4,6 +4,7 @@
   data/subscription.csv        공고별 일정·규제·입주예정 (APT 일반분양 + 무순위/잔여세대)
   data/subscription_types.csv  주택형별 공급세대수·최고 분양가 (공고당 한 번만 조회)
   data/subscription_cmpet.csv  주택형별 경쟁률 (별도 활용신청 서비스 — 승인 전이면 건너뜀)
+  data/subscription_score.csv  주택형별 당첨 가점 (최저·평균·최고)
 
 사용법: python collect_subscription.py
 """
@@ -35,7 +36,9 @@ FIELDS = ["구분", "주택관리번호", "공고번호", "단지명", "주소",
           "당첨자발표일", "계약시작", "계약종료", "입주예정월",
           "분양가상한제", "투기과열지구", "조정대상지역", "시공사", "시행사", "홈페이지", "공고URL", "위도", "경도"]
 TYPE_FIELDS = ["주택관리번호", "공고번호", "주택형", "전용면적", "공급면적", "일반공급세대", "특별공급세대", "최고분양가"]
-CMPET_FIELDS = ["주택관리번호", "공고번호", "주택형", "순위", "거주지역", "접수건수", "경쟁률"]
+CMPET_FIELDS = ["주택관리번호", "공고번호", "주택형", "순위", "거주지역", "공급세대", "접수건수", "경쟁률"]
+SCORE = ROOT / "data" / "subscription_score.csv"
+SCORE_FIELDS = ["주택관리번호", "주택형", "거주지역", "최저가점", "평균가점", "최고가점"]
 
 
 def read_csv(path):
@@ -149,19 +152,35 @@ def main():
     write_csv(TYPES, TYPE_FIELDS, types)
     print(f"✅ 서울 청약 공고 {len(out):,}건 (주택형 {len(types):,}개) 저장")
 
-    # 경쟁률 (별도 서비스 — 활용신청 승인 후 자동으로 채워짐)
+    # 경쟁률·당첨가점 (일반분양만, '청약접수 경쟁률 및 특별공급 신청현황 조회 서비스')
+    #  - 접수가 끝난 공고만 조회. 접수 후 60일 안의 공고는 매일 다시 받고, 그보다 오래된 공고는 한 번만 받음
+    cm_rows, sc_rows = read_csv(CMPET), read_csv(SCORE)
+    have = {r["주택관리번호"] for r in cm_rows}
+    today = time.strftime("%Y-%m-%d")
+    recent = time.strftime("%Y-%m-%d", time.localtime(time.time() - 60 * 86400))
+    todo = [r for r in out.values() if r["구분"] == "APT" and r["접수종료"] and r["접수종료"] < today
+            and (r["주택관리번호"] not in have or r["접수종료"] >= recent)]
     try:
-        rows = get_all(key, "ApplyhomeInfoCmpetRtSvc/v1/getAPTLttotPblancCmpet",
-                       {"cond[HOUSE_MANAGE_NO::GTE]": "2024000000"})
-        seoul = {r["주택관리번호"] for r in out.values()}
-        write_csv(CMPET, CMPET_FIELDS, [{
-            "주택관리번호": d(c.get("HOUSE_MANAGE_NO")), "공고번호": d(c.get("PBLANC_NO")),
-            "주택형": d(c.get("HOUSE_TY")), "순위": d(c.get("SUBSCRPT_RANK_CODE")),
-            "거주지역": d(c.get("RESIDE_SENM")), "접수건수": d(c.get("REQ_CNT")), "경쟁률": d(c.get("CMPET_RATE")),
-        } for c in rows if d(c.get("HOUSE_MANAGE_NO")) in seoul])
-        print("✅ 경쟁률 저장")
+        for r in todo:
+            no = r["주택관리번호"]
+            cond = {"cond[HOUSE_MANAGE_NO::EQ]": no}
+            cm = get_all(key, "ApplyhomeInfoCmpetRtSvc/v1/getAPTLttotPblancCmpet", cond)
+            sc = get_all(key, "ApplyhomeInfoCmpetRtSvc/v1/getAptLttotPblancScore", cond)
+            cm_rows = [x for x in cm_rows if x["주택관리번호"] != no] + [{
+                "주택관리번호": no, "공고번호": d(c.get("PBLANC_NO")), "주택형": d(c.get("HOUSE_TY")),
+                "순위": d(c.get("SUBSCRPT_RANK_CODE")), "거주지역": d(c.get("RESIDE_SENM")),
+                "공급세대": d(c.get("SUPLY_HSHLDCO")), "접수건수": d(c.get("REQ_CNT")), "경쟁률": d(c.get("CMPET_RATE")),
+            } for c in cm] or [{"주택관리번호": no}]   # 결과가 없어도 조회했다는 표시
+            sc_rows = [x for x in sc_rows if x["주택관리번호"] != no] + [{
+                "주택관리번호": no, "주택형": d(s.get("HOUSE_TY")), "거주지역": d(s.get("RESIDE_SENM")),
+                "최저가점": d(s.get("LWET_SCORE")), "평균가점": d(s.get("AVRG_SCORE")), "최고가점": d(s.get("TOP_SCORE")),
+            } for s in sc]
+            time.sleep(0.05)
+        write_csv(CMPET, CMPET_FIELDS, cm_rows)
+        write_csv(SCORE, SCORE_FIELDS, sc_rows)
+        print(f"✅ 경쟁률·가점 {len(todo)}개 공고 갱신")
     except PermissionError:
-        print("ℹ️  경쟁률 API 미승인 — 건너뜀 ('청약홈 청약 신청·당첨자 정보 조회 서비스' 활용신청 시 자동 수집)")
+        print("ℹ️  경쟁률 API 미승인 — 건너뜀 ('청약접수 경쟁률 및 특별공급 신청현황 조회 서비스' 활용신청 시 자동 수집)")
 
 
 if __name__ == "__main__":

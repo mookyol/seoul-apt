@@ -93,22 +93,31 @@ def build_subscriptions(summary):
     for t in read_csv(ROOT / "data" / "subscription_types.csv"):
         if t["최고분양가"] and t["전용면적"]:
             types[t["주택관리번호"]].append(t)
-    cmpet = defaultdict(list)
-    cm_csv = ROOT / "data" / "subscription_cmpet.csv"
-    if cm_csv.exists():
-        for c in read_csv(cm_csv):
+    # 주택형별 1순위 해당지역 경쟁률 · 당첨가점 (서울 거주자 기준)
+    cmpet, score = defaultdict(dict), defaultdict(dict)
+    for c in read_csv(ROOT / "data" / "subscription_cmpet.csv") if (ROOT / "data" / "subscription_cmpet.csv").exists() else []:
+        if c.get("순위") == "1" and c.get("거주지역") == "해당지역":
             try:
-                cmpet[c["주택관리번호"]].append(float(c["경쟁률"]))
-            except ValueError:
+                cmpet[c["주택관리번호"]][c["주택형"].strip()] = float(c["경쟁률"])
+            except (ValueError, KeyError):
                 pass
+    for c in read_csv(ROOT / "data" / "subscription_score.csv") if (ROOT / "data" / "subscription_score.csv").exists() else []:
+        if c.get("거주지역") == "해당지역":
+            try:  # 가점 미공개·추첨제 타입은 "-" 또는 0
+                lo, avg = int(float(c["최저가점"])), float(c["평균가점"] or 0)
+            except (ValueError, TypeError):
+                continue
+            if lo > 0:
+                score[c["주택관리번호"]][c["주택형"].strip()] = (lo, avg)
 
     this_year = date.today().year
-    priced = [s for s in summary if s["p"]]
+    priced = [s for s in summary if s["p"] and s["la"]]
     out = []
     for r in read_csv(sub_csv):
-        ts = types.get(r["주택관리번호"], [])
-        ty = [[t["주택형"].strip(), float(t["전용면적"]), int(t["일반공급세대"] or 0), int(t["특별공급세대"] or 0),
-               int(t["최고분양가"])] for t in ts]
+        no = r["주택관리번호"]
+        ts = types.get(no, [])
+        ty = ty_list = [[t["주택형"].strip(), float(t["전용면적"]), int(t["일반공급세대"] or 0),
+                         int(t["특별공급세대"] or 0), int(t["최고분양가"])] for t in ts]
         sppp = median([p / a * PYEONG for _, a, _, _, p in ty if a > 0])  # 분양 평당가 (전용 기준 — 시세와 같은 기준)
         s84 = median([p for _, a, _, _, p in ty if 76 <= a < 95])
         s59 = median([p for _, a, _, _, p in ty if 50 <= a < 66])
@@ -137,7 +146,10 @@ def build_subscriptions(summary):
             "m84": n84 - s84 if n84 and s84 else None,                   # 84㎡ 기준 예상 차익(만원)
             "near": [{"c": o["c"], "n": o["n"], "km": round(dk, 2), "y": o["y"], "p84": o["p84"], "p": o["p"]}
                      for dk, o in nb[:6]],
-            "cm": round(max(cmpet[r["주택관리번호"]]), 1) if cmpet.get(r["주택관리번호"]) else None,
+            "cm": round(max(cmpet[no].values()), 1) if cmpet.get(no) else None,                 # 최고 경쟁률
+            "sc": min(v[0] for v in score[no].values()) if score.get(no) else None,           # 가장 낮은 당첨 커트라인
+            "tyc": {ty: [cmpet[no].get(ty), *(score[no].get(ty) or (None, None))]               # 타입별 [경쟁률, 최저, 평균]
+                    for ty in {t[0] for t in ty_list}} if (cmpet.get(no) or score.get(no)) else None,
         })
     return out
 
@@ -166,11 +178,18 @@ def main():
     shutil.rmtree(OUT, ignore_errors=True)
     (OUT / "c").mkdir(parents=True)
 
+    # 단지 정보표에 아직 없는 단지는 매매 기록의 기본 정보로 목록·검색에 먼저 노출 (좌표가 생기면 지도에도 표시)
+    basic = {}
+    for path in sorted((ROOT / "data" / "trades").glob("*.csv"))[-36:]:
+        for r in read_csv(path):
+            basic[r["단지코드"]] = {"단지코드": r["단지코드"], "아파트명": r["아파트명"], "구": r["구"],
+                                   "법정동": r["법정동"], "지번": r["지번"], "건축년도": r["건축년도"]}
+
     summary, details = [], {}
     for code, ts in by_code.items():
-        ci = info.get(code)
-        if not ci or not ci.get("위도"):
-            continue  # 좌표 없는 단지는 지도·목록에서 제외
+        ci = info.get(code) if info.get(code, {}).get("위도") else basic.get(code)
+        if not ci:
+            continue  # 최근 3년간 거래가 없고 단지 정보도 없는 단지
         js = j_by_code.get(code, [])
         recent = [t for t in ts if t["date"] >= w0]
         j_recent = [t for t in js if t["date"] >= w0]
@@ -190,15 +209,18 @@ def main():
 
         summary.append({
             "c": code, "n": ci["아파트명"], "g": ci["구"], "d": ci["법정동"], "j": ci["지번"],
-            "la": round(float(ci["위도"]), 6), "lo": round(float(ci["경도"]), 6),
+            "la": round(float(ci["위도"]), 6) if ci.get("위도") else None,
+            "lo": round(float(ci["경도"]), 6) if ci.get("경도") else None,
             "y": int(ci["건축년도"]) if ci.get("건축년도") else None,
             "h": int(num("세대수")) if num("세대수") else None,
             "b": ci.get("건설사") or None,
             "st": ci.get("최근접역") or None, "sd": int(num("역거리m")) if num("역거리m") is not None else None,
             "sl": int(num("역세권노선수") or 0),
             "bz": ci.get("업무지구최근접") or None, "bk": num("업무지구거리km"),
-            "es": ci.get("초등학교") or None, "em": int(num("초등학교m")) if num("초등학교m") is not None else None,
-            "ms": ci.get("중학교") or None, "mm": int(num("중학교m")) if num("중학교m") is not None else None,
+            **{k: (ci.get(col) if ci.get(col) not in (None, "", "없음") else None) for k, col in
+               (("es", "초등학교"), ("ms", "중학교"), ("hs", "고등학교"))},
+            **{k: (int(num(col)) if num(col) is not None else None) for k, col in
+               (("em", "초등학교m"), ("mm", "중학교m"), ("hm", "고등학교m"))},
             "a5": int(num("학원수500m")) if num("학원수500m") is not None else None,
             "a1": int(num("학원수1km")) if num("학원수1km") is not None else None,
             "p": p_now, "p84": p84, "p59": p59, "j84": j84, "j59": j59,
@@ -230,10 +252,10 @@ def main():
         }
 
     # 키맞추기: 반경 1.5km 안 단지들과 평당가·3년 상승률 비교
-    priced = [s for s in summary if s["p"]]
+    priced = [s for s in summary if s["p"] and s["la"]]
     for s in summary:
         near = []
-        for o in priced:
+        for o in (priced if s["la"] else []):
             if o is s or abs(o["la"] - s["la"]) > 0.02 or abs(o["lo"] - s["lo"]) > 0.025:
                 continue
             dkm = km((s["la"], s["lo"]), (o["la"], o["lo"]))
