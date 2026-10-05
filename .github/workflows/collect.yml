@@ -46,6 +46,7 @@ jobs:
           fi
 
       - name: 변경된 데이터 저장
+        if: always()   # 수집이 중간에 실패해도 받은 달까지는 저장 (다시 돌리면 이어서 받음)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
