@@ -245,14 +245,24 @@ def main():
     existing = {r["단지코드"]: r for r in read_csv(COMPLEX_CSV)}
     todo = [c for code, c in targets.items()
             if code not in existing or (retry and existing[code]["kapt매칭"] in ("매칭실패", "동에 K-apt 단지 없음"))]
-    todo.sort(key=lambda c: c["최근거래일"], reverse=True)   # 최근에 거래된 단지부터 (활발한 단지 우선)
+    # 우선 처리할 구 (예: --first 송파구,강동구) → 그다음 최근에 거래된 단지부터 (활발한 단지 우선)
+    first = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--first=")), os.environ.get("FIRST_GU", ""))
+    first = [g.strip() for g in first.split(",") if g.strip()]
+    todo.sort(key=lambda c: c["최근거래일"], reverse=True)
+    todo.sort(key=lambda c: c["구"] not in first)                # 안정 정렬 — 우선 구 안에서도 최근 거래순 유지
     for code, c in targets.items():                          # 이미 있는 단지도 최근거래일은 갱신
         if code in existing:
             existing[code]["최근거래일"] = c["최근거래일"]
     print(f"단지 {len(targets):,}개 중 처리할 단지 {len(todo):,}개")
 
+    deadline = time.time() + float(os.environ.get("MAX_MINUTES") or 1e6) * 60   # 시간 예산 (남은 건 다음 실행)
+    save = lambda: write_csv(COMPLEX_CSV, COMPLEX_FIELDS, sorted(existing.values(), key=lambda r: r["단지코드"]))
     kapt = Kapt(service_key)
     for i, c in enumerate(todo, 1):
+        if time.time() > deadline:
+            save()
+            print(f"⏸  시간 예산 소진 — {i - 1:,}/{len(todo):,}개 처리, 나머지는 다음 실행에서")
+            return
         k, how = match_kapt(c, kapt.by_bjd(c["법정동코드"]))
         lat, lon, src = geocode(kakao, c, k)
         row = {**c, "위도": lat or "", "경도": lon or "", "좌표출처": src, "kapt매칭": how}
@@ -262,25 +272,31 @@ def main():
             row.update({f"{n}km": round(v, 2) for n, v in d.items()})
             row["업무지구최근접"] = min(d, key=d.get)
             row["업무지구거리km"] = round(min(d.values()), 2)
+            row.update(schools(kakao, lat, lon))   # 학군도 같이 (단지가 화면에 한 번에 완성되도록)
         if k:
             row.update({"kaptCode": k["kaptCode"], "kapt단지명": k["kaptName"], "세대수": k["세대수"],
                         "동수": k["동수"], "최고층": k["최고층"], "사용승인일": k["사용승인일"],
                         "건설사": k["건설사"], "난방": k["난방"]})
         existing[c["단지코드"]] = row
         if i % 100 == 0 or i == len(todo):
-            write_csv(COMPLEX_CSV, COMPLEX_FIELDS, sorted(existing.values(), key=lambda r: r["단지코드"]))
+            save()
             print(f"  {i:,}/{len(todo):,} 저장", flush=True)
 
     # 학군 정보가 비어 있는 단지 채우기 (나중에 추가된 열이라 예전 단지도 여기서 처리)
     # (학교 이름 칸이 비어 있음 = 아직 조회 안 함. 2km 안에 학교가 없으면 "없음"으로 기록)
     need = [r for r in existing.values() if r.get("위도") and (not r.get("학원수1km") or not r.get("고등학교"))]
     need.sort(key=lambda r: r.get("최근거래일") or "", reverse=True)
+    need.sort(key=lambda r: r.get("구") not in first)
     if need:
         print(f"학군 정보 채울 단지 {len(need):,}개")
     for i, r in enumerate(need, 1):
+        if time.time() > deadline:
+            save()
+            print(f"⏸  시간 예산 소진 — 학군 {i - 1:,}/{len(need):,}개 처리, 나머지는 다음 실행에서")
+            return
         r.update(schools(kakao, float(r["위도"]), float(r["경도"])))
         if i % 200 == 0 or i == len(need):
-            write_csv(COMPLEX_CSV, COMPLEX_FIELDS, sorted(existing.values(), key=lambda r: r["단지코드"]))
+            save()
             print(f"  학군 {i:,}/{len(need):,} 저장", flush=True)
 
     rows = list(existing.values())

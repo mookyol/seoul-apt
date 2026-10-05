@@ -19,6 +19,9 @@ on:
       end:
         description: "종료월 (예: 202609)"
         required: false
+      first_gu:
+        description: "단지 정보를 먼저 채울 구 (예: 송파구,강동구)"
+        required: false
 
 permissions:
   contents: write
@@ -55,6 +58,8 @@ jobs:
         env:
           SERVICE_KEY: ${{ secrets.SERVICE_KEY }}
           KAKAO_KEY: ${{ secrets.KAKAO_KEY }}
+          FIRST_GU: ${{ inputs.first_gu }}
+          MAX_MINUTES: "120"   # 한 번에 최대 2시간만 — 남은 단지는 다음 실행이 이어서 처리 (진행분은 매번 저장)
         run: |
           if [ -n "$KAKAO_KEY" ]; then python build_complexes.py; else echo "KAKAO_KEY 비밀값 없음 — 건너뜀"; fi
 
