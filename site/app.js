@@ -133,6 +133,8 @@ async function init() {
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   $$("#tab-list .filters select").forEach((s) => s.addEventListener("change", () => { saveFilters(); renderList(); }));
   $("#f-more").addEventListener("click", () => ($("#more").hidden = !$("#more").hidden));
+  $$("#list-seg button").forEach((b) => b.addEventListener("click", () => setListView(b.dataset.v)));
+  $$("#list-seg button").forEach((b) => b.classList.toggle("on", b.dataset.v === store.get("listView", "rank")));
   $("#q").addEventListener("input", () => {
     if ($("#tab-supply").classList.contains("active")) return renderSupply();   // 청약 탭에서는 청약 공고 검색
     if (!$("#tab-list").classList.contains("active")) showTab("list");
@@ -520,7 +522,7 @@ async function renderNews() {
 }
 
 // ---------- 순위 ----------
-function filtered() {
+function filtered(ignoreGu = false) {
   const q = $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
         sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value,
@@ -530,7 +532,7 @@ function filtered() {
   const hay = (i) => (i._hay ??= [i.n, i.al, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
   const xs = state.items.filter((i) =>
     (!words.length || words.every((w) => hay(i).includes(w))) &&
-    (!gu || i.g === gu) &&
+    (!gu || ignoreGu || i.g === gu) &&
     (!budget || (i.p84 != null && i.p84 <= budget)) &&
     (!hh || (i.h ?? 0) >= hh) &&
     (!sd || (i.sd != null && i.sd <= sd)) &&
@@ -582,7 +584,52 @@ function itemHTML(i, rank) {
 function bindItems(root) {
   root.querySelectorAll(".item[data-c]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.c)));
 }
+// ---------- 🗺️ 구별 비교 ----------
+const median = (a) => { const v = a.filter((x) => x != null).sort((x, y) => x - y); return v.length ? v[Math.floor(v.length / 2)] : null; };
+const GU_COLS = [
+  ["n", "단지", (g) => g.n.toLocaleString(), true],
+  ["ls", "입지점수", (g) => g.ls ?? "–", true],
+  ["p", "평당가", (g) => won(g.p), true],
+  ["p84", "84㎡", (g) => won(g.p84), true],
+  ["r1", "1년", (g) => `<span class="${cls(g.r1)}">${pct(g.r1)}</span>`, true],
+  ["r3", "3년", (g) => `<span class="${cls(g.r3)}">${pct(g.r3)}</span>`, true],
+  ["jr", "전세가율", (g) => g.jr != null ? g.jr + "%" : "–", true],
+  ["dA", "방어 A", (g) => g.dA != null ? g.dA + "%" : "–", true],
+  ["ct", "출근(분)", (g) => g.ct ?? "–", false],
+];
+function renderGuTable() {
+  const xs = filtered(true), by = {};
+  for (const i of xs) (by[i.g] ??= []).push(i);
+  const rows = Object.entries(by).map(([g, a]) => ({
+    g, n: a.length, ls: median(a.map((i) => i.ls)), p: median(a.map((i) => i.p)), p84: median(a.map((i) => i.p84)),
+    r1: median(a.map((i) => i.r1)), r3: median(a.map((i) => i.r3)), jr: median(a.map((i) => i.jr)),
+    dA: a.some((i) => i.dg) ? Math.round(a.filter((i) => i.dg === "A").length / a.filter((i) => i.dg).length * 100) : null,
+    ct: median(a.map(ctOf)),
+  }));
+  const [key, desc] = store.get("guSort", ["ls", true]);
+  rows.sort((a, b) => ((a[key] ?? (desc ? -1e12 : 1e12)) - (b[key] ?? (desc ? -1e12 : 1e12))) * (desc ? -1 : 1));
+  $("#count").textContent = `${rows.length}개 구 · 단지 ${xs.length.toLocaleString()}개 기준 (값은 구 안 단지들의 중앙값)`;
+  $("#list").innerHTML = `<div class="card gu-card" style="overflow-x:auto"><table class="gu-tbl">
+    <tr><th>구</th>${GU_COLS.map(([k, l]) => `<th data-k="${k}" class="${k === key ? "on" : ""}">${l}${k === key ? (desc ? " ▼" : " ▲") : ""}</th>`).join("")}</tr>
+    ${rows.map((r, n) => `<tr data-g="${esc(r.g)}"><td><span class="rk">${n + 1}</span><b>${esc(r.g)}</b></td>${GU_COLS.map(([, , f]) => `<td>${f(r)}</td>`).join("")}</tr>`).join("")}
+  </table></div>
+  <div class="note" style="padding:0 16px">머리글을 누르면 정렬, 구를 누르면 그 구의 단지 순위로 이동합니다. 출근(분) = 필터의 출근지(${HUB_NAMES[cwIdx()]}) 기준.</div>`;
+  $$(".gu-tbl th[data-k]").forEach((th) => (th.onclick = () => {
+    const col = GU_COLS.find((c) => c[0] === th.dataset.k);
+    store.set("guSort", [th.dataset.k, key === th.dataset.k ? !desc : col[3]]); renderList();
+  }));
+  $$(".gu-tbl tr[data-g]").forEach((tr) => (tr.onclick = () => {
+    $("#f-gu").value = tr.dataset.g; saveFilters(); setListView("rank");
+  }));
+}
+function setListView(v) {
+  store.set("listView", v);
+  $$("#list-seg button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  renderList();
+}
+
 function renderList() {
+  if (store.get("listView", "rank") === "gu") return renderGuTable();
   const xs = filtered();
   $("#count").textContent = `${xs.length.toLocaleString()}개 단지` + (xs.length > 200 ? " (상위 200개 표시)" : "");
   $("#list").innerHTML = xs.length ? xs.slice(0, 200).map((i, k) => itemHTML(i, k + 1)).join("")

@@ -179,6 +179,14 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .nw:first-child { border-top: 0; }
 .nw a { color: var(--text); font-weight: 700; text-decoration: none; }
 .nw a:hover { text-decoration: underline; }
+.gu-card { margin: 4px 12px 10px; padding: 6px; }
+.gu-tbl { font-size: 13px; white-space: nowrap; }
+.gu-tbl th { cursor: pointer; user-select: none; padding: 8px 6px; }
+.gu-tbl th.on { color: var(--brand); font-weight: 700; }
+.gu-tbl td { padding: 8px 6px; }
+.gu-tbl tr[data-g] { cursor: pointer; }
+.gu-tbl tr[data-g]:hover td { background: var(--brand-soft); }
+.gu-tbl td:first-child, .gu-tbl th:first-child { position: sticky; left: 0; background: var(--card); text-align: left; }
 .ginfo { display: inline-block; margin-left: 4px; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%;
   background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 700; text-decoration: none; vertical-align: 2px; }
 .toc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
