@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: write
+  actions: write     # 중간 저장 후 사이트 배포 워크플로 실행
 
 concurrency:
   group: collect
@@ -54,20 +55,34 @@ jobs:
             python collect.py "$DATASET" --recent
           fi
 
-      - name: 단지 정보 갱신 (새로 생긴 단지만)
-        env:
-          SERVICE_KEY: ${{ secrets.SERVICE_KEY }}
-          KAKAO_KEY: ${{ secrets.KAKAO_KEY }}
-          FIRST_GU: ${{ inputs.first_gu }}
-          MAX_MINUTES: "120"   # 한 번에 최대 2시간만 — 남은 단지는 다음 실행이 이어서 처리 (진행분은 매번 저장)
-        run: |
-          if [ -n "$KAKAO_KEY" ]; then python build_complexes.py; else echo "KAKAO_KEY 비밀값 없음 — 건너뜀"; fi
-
       - name: 청약·분양 정보 갱신
         env:
           SERVICE_KEY: ${{ secrets.SERVICE_KEY }}
           KAKAO_KEY: ${{ secrets.KAKAO_KEY }}
         run: python collect_subscription.py || echo "⚠️ 청약 정보 수집 실패 — 다른 데이터는 계속 저장"
+
+      - name: 단지 정보 갱신 (25분마다 저장 + 사이트 갱신)
+        env:
+          SERVICE_KEY: ${{ secrets.SERVICE_KEY }}
+          KAKAO_KEY: ${{ secrets.KAKAO_KEY }}
+          FIRST_GU: ${{ inputs.first_gu }}
+          MAX_MINUTES: "25"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$KAKAO_KEY" ]; then echo "KAKAO_KEY 비밀값 없음 — 건너뜀"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 최대 8회 × 25분. 회차마다 저장·푸시하고 사이트 배포를 요청 → 처리된 단지가 바로 화면에 보임
+          for round in 1 2 3 4 5 6 7 8; do
+            set +e; python build_complexes.py; code=$?; set -e
+            git add data/
+            if ! git diff --cached --quiet; then
+              git commit -m "단지 정보 갱신 $(date -u +%Y-%m-%d) (${round}회차)"
+              git pull --rebase && git push
+              gh workflow run site.yml || true
+            fi
+            [ "$code" = "3" ] || break   # 3 = 남은 작업 있음, 그 외 = 완료(또는 오류)
+          done
 
       - name: 변경된 데이터 저장
         if: always()   # 수집이 중간에 실패해도 받은 달까지는 저장 (다시 돌리면 이어서 받음)

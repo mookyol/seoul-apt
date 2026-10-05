@@ -262,7 +262,7 @@ def main():
         if time.time() > deadline:
             save()
             print(f"⏸  시간 예산 소진 — {i - 1:,}/{len(todo):,}개 처리, 나머지는 다음 실행에서")
-            return
+            sys.exit(3)   # 남은 작업 있음 (워크플로가 저장 후 다시 실행)
         k, how = match_kapt(c, kapt.by_bjd(c["법정동코드"]))
         lat, lon, src = geocode(kakao, c, k)
         row = {**c, "위도": lat or "", "경도": lon or "", "좌표출처": src, "kapt매칭": how}
@@ -293,7 +293,7 @@ def main():
         if time.time() > deadline:
             save()
             print(f"⏸  시간 예산 소진 — 학군 {i - 1:,}/{len(need):,}개 처리, 나머지는 다음 실행에서")
-            return
+            sys.exit(3)
         r.update(schools(kakao, float(r["위도"]), float(r["경도"])))
         if i % 200 == 0 or i == len(need):
             save()

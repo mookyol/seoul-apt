@@ -37,13 +37,20 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "
 const thisYear = new Date().getFullYear();
 
 // ---------- 입지점수 (각 0~100, 가중평균) ----------
+// 비중 키: a 출근 접근성 · h 단지 규모 · e 학군 · s 역세권
+// "데이터 추천형"은 백테스트(2022~26 이후 상승률과의 순위상관 크기)에 맞춘 비중: 업무지구 0.47 > 규모 0.17 ≈ 학군 > 역 0.13
 const PRESETS = {
-  "균형형": { h: 33, e: 33, s: 34 },
-  "자녀 학군형": { h: 20, e: 60, s: 20 },
-  "출퇴근형": { h: 20, e: 20, s: 60 },
-  "대단지 안정형": { h: 50, e: 20, s: 30 },
+  "데이터 추천형": { a: 45, h: 20, e: 20, s: 15 },
+  "균형형": { a: 25, h: 25, e: 25, s: 25 },
+  "자녀 학군형": { a: 15, h: 15, e: 55, s: 15 },
+  "출퇴근형": { a: 45, h: 10, e: 10, s: 35 },
+  "대단지 안정형": { a: 25, h: 45, e: 15, s: 15 },
 };
-const weights = () => store.get("weights", PRESETS["균형형"]);
+const WKEYS = ["a", "h", "e", "s"];
+const weights = () => {
+  const w = store.get("weights", null);
+  return w && WKEYS.every((k) => k in w) ? w : { ...PRESETS["데이터 추천형"] };   // 예전 3요소 저장값은 새 기본값으로
+};
 function scoreSize(h) {
   if (h == null) return 20;   // K-apt 미등록 = 대부분 150세대 미만 소규모 단지
   return h >= 2000 ? 100 : h >= 1000 ? 80 : h >= 500 ? 60 : h >= 300 ? 40 : 20;
@@ -53,13 +60,21 @@ function scoreStation(sd, sl) {
   const base = sd <= 300 ? 100 : sd <= 500 ? 80 : sd <= 800 ? 60 : sd <= 1000 ? 45 : sd <= 1500 ? 25 : 10;
   return Math.min(100, base + Math.max(0, (sl || 0) - 1) * 10);
 }
+const step = (m, cuts) => m == null ? null : m <= cuts[0] ? 100 : m <= cuts[1] ? 75 : m <= cuts[2] ? 50 : 25;
+// 학군 = 초등 35% · 중등 20% · 고등 15% · 학원가 30% (있는 항목만으로 가중평균)
+function eduParts(i) {
+  return {
+    초: step(i.em, [300, 500, 800]),        // 매일 걸어서 → 가까울수록
+    중: step(i.mm, [500, 800, 1200]),
+    고: step(i.hm, [700, 1000, 1500]),       // 버스 통학도 흔해 허용 거리 넓게
+    학원: i.a1 == null ? null : state.acadPct(i.a1),
+  };
+}
 function scoreEdu(i) {
-  const school = i.em == null ? null : i.em <= 300 ? 100 : i.em <= 500 ? 75 : i.em <= 800 ? 50 : 25;
-  const acad = i.a1 == null ? null : state.acadPct(i.a1);
-  if (school == null && acad == null) return null;
-  if (school == null) return acad;
-  if (acad == null) return school;
-  return Math.round((school + acad) / 2);
+  const p = eduParts(i), w = { 초: 35, 중: 20, 고: 15, 학원: 30 };
+  let s = 0, t = 0;
+  for (const k in w) if (p[k] != null) { s += p[k] * w[k]; t += w[k]; }
+  return t ? Math.round(s / t) : null;
 }
 function computeScores() {
   const a = state.items.map((i) => i.a1).filter((x) => x != null).sort((x, y) => x - y);
@@ -71,15 +86,27 @@ function computeScores() {
   };
   const w = weights();
   for (const i of state.items) {
-    if (!i.la) { i.sH = i.sE = i.sS = i.ls = null; continue; }   // 위치 정보 수집 전 단지는 점수 보류
+    if (!i.la) { i.sA = i.sH = i.sE = i.sS = i.ls = null; continue; }   // 위치 정보 수집 전 단지는 점수 보류
+    i.sA = i.ac == null ? null : Math.round(i.ac);
     i.sH = scoreSize(i.h); i.sE = scoreEdu(i); i.sS = scoreStation(i.sd, i.sl);
     let sum = 0, wt = 0;
-    for (const [s, k] of [[i.sH, "h"], [i.sE, "e"], [i.sS, "s"]]) if (s != null) { sum += s * w[k]; wt += w[k]; }
+    for (const [s, k] of [[i.sA, "a"], [i.sH, "h"], [i.sE, "e"], [i.sS, "s"]]) if (s != null) { sum += s * w[k]; wt += w[k]; }
     i.ls = wt ? Math.round(sum / wt) : null;
   }
 }
 const bar = (label, v) => `<span class="sb"><em>${label}</em><i style="--v:${v ?? 0}%"></i><b>${v ?? "–"}</b></span>`;
-const scoreBars = (i) => `<div class="sbars">${bar("규모", i.sH)}${bar("학군", i.sE)}${bar("역", i.sS)}</div>`;
+const scoreBars = (i) => `<div class="sbars">${bar("출근", i.sA)}${bar("규모", i.sH)}${bar("학군", i.sE)}${bar("역", i.sS)}</div>`;
+// 학군지 태그: 서울 3대 학원가 + 학원 밀집 상위 지역
+const EDU_ZONES = { "대치 학원가": ["대치동", "도곡동", "개포동", "일원동"], "목동 학원가": ["목동", "신정동"],
+                    "중계 학원가": ["중계동", "하계동"] };
+function eduTags(i) {
+  const tags = Object.entries(EDU_ZONES).filter(([, ds]) => ds.includes(i.d) && (i.a1 ?? 0) >= 150).map(([z]) => z);
+  const p = i.a1 == null ? null : state.acadPct(i.a1);
+  if (p != null && p >= 95) tags.push("학원 밀집 상위 5%");
+  else if (p != null && p >= 85) tags.push("학원 밀집 상위 15%");
+  if (i.em != null && i.em <= 300) tags.push("초품아");
+  return tags;
+}
 
 // ---------- 시작 ----------
 async function init() {
@@ -163,18 +190,19 @@ function showTab(name) {
 function buildWeightPanel() {
   $("#more").insertAdjacentHTML("beforebegin", `
     <div class="wpanel">
-      <div class="wtitle">📍 입지점수 비중 <span class="note">— 세대수 · 학군 · 역세권</span></div>
-      <div class="presets">${Object.keys(PRESETS).map((p) => `<button class="chip" data-p="${p}">${p}</button>`).join("")}</div>
-      ${[["h", "🏢 단지 규모"], ["e", "🎒 학군"], ["s", "🚇 역세권"]].map(([k, l]) =>
+      <div class="wtitle">📍 입지점수 비중 <span class="note">— 출근 · 규모 · 학군(초중고+학원) · 역</span></div>
+      <div class="presets">${Object.keys(PRESETS).map((p) => `<button class="chip" data-p="${p}">${p === "데이터 추천형" ? "⭐ " : ""}${p}</button>`).join("")}</div>
+      <div class="note" style="margin-bottom:4px">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승과 관련이 컸던 순서대로 비중 (<a href="#score">성적표</a>)</div>
+      ${[["a", "🏙️ 출근 접근성"], ["h", "🏢 단지 규모"], ["e", "🎒 학군"], ["s", "🚇 역세권"]].map(([k, l]) =>
         `<label class="wrow"><span>${l}</span><input type="range" min="0" max="100" step="5" data-k="${k}"><b data-v="${k}"></b></label>`).join("")}
     </div>`);
   const sync = () => {
-    const w = weights(), tot = w.h + w.e + w.s || 1;
+    const w = weights(), tot = WKEYS.reduce((t, k) => t + w[k], 0) || 1;
     $$(".wrow input").forEach((r) => (r.value = w[r.dataset.k]));
     $$(".wrow b").forEach((b) => (b.textContent = Math.round((w[b.dataset.v] / tot) * 100) + "%"));
     $$(".presets button").forEach((b) => {
       const p = PRESETS[b.dataset.p];
-      b.classList.toggle("on", p.h === w.h && p.e === w.e && p.s === w.s);
+      b.classList.toggle("on", WKEYS.every((k) => p[k] === w[k]));
     });
   };
   const apply = () => { computeScores(); sync(); renderList(); drawMarkers(); };
@@ -406,7 +434,7 @@ function filtered() {
     sd: lo("sd"), bk: lo("bk"), em: lo("em"), a1: hi("a1"), pAsc: lo("p"), pDesc: hi("p"),
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
     df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
-    gpA: lo("gp"), gpD: hi("gp"),
+    gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"),
   }[$("#f-sort").value];
   return xs.sort((a, b) => key(a) - key(b));
 }
@@ -419,6 +447,7 @@ function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수�
     df: [`방어 ${i.dg ?? "–"} (${i.df ?? "–"})`, ""], dd: [`'22 낙폭 ${i.dd != null ? "-" + i.dd + "%" : "–"}${i.de ? " 추정" : ""}`, "down"],
     ac: [`출근 ${i.ac ?? "–"}`, ""],
     gpA: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)], gpD: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)],
+    sE: [`학군 ${i.sE ?? "–"}점`, ""],
   }[s] || [`1년 ${pct(i.r1)}`, cls(i.r1)];
 }
 function remarkBadge(code) {
@@ -433,7 +462,7 @@ function itemHTML(i, rank) {
     <div class="nm">${rank ? `<span class="rk">${rank}</span>` : ""}${isFav(i.c) ? "⭐ " : ""}${esc(i.n)}${isNew(i) ? '<span class="badge">새 거래</span>' : ""}${remarkBadge(i.c)}</div>
     <div class="px">${i.p84 ? "84㎡ " + won(i.p84) : i.p59 ? "59㎡ " + won(i.p59) : "평당 " + won(i.p)}</div>
     <div class="sub">${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}<br>
-      🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${i.em != null ? ` · 🎒 초 ${dist(i.em)}` : ""}</div>
+      🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${i.em != null ? ` · 🎒 초 ${dist(i.em)} 중 ${dist(i.mm)} 고 ${dist(i.hm)}` : ""}</div>
     <div class="chg"><span class="lsc">${i.ls ?? "–"}<small>점</small></span><br><span class="${c}">${m}</span></div>
     ${scoreBars(i)}
   </li>`;
@@ -553,13 +582,15 @@ async function renderDetail(code) {
     <div class="card"><h3>🚇 교통</h3>
       <div>${esc(i.st ?? "–")} <b>${dist(i.sd)}</b>${i.sl > 1 ? ` · 500m 안 ${i.sl}개 노선` : ""}</div>
       <div class="note">${esc(i.bz ?? "")} 업무지구 직선거리 ${i.bk ?? "–"}km</div></div>
-    <div class="card"><h3>🎒 학군</h3>
-      <div>초등학교: ${esc(i.es ?? "–")} <b>${dist(i.em)}</b>${i.em != null && i.em <= 300 ? '<span class="tag">초품아</span>' : ""}</div>
-      <div>중학교: ${esc(i.ms ?? "–")} <b>${dist(i.mm)}</b></div>
-      <div>고등학교: ${esc(i.hs ?? "–")} <b>${dist(i.hm)}</b></div>
-      ${i.es == null && i.a1 == null ? `<div class="note">학군 정보를 수집 중입니다 (곧 자동으로 채워집니다)</div>` : ""}
-      <div>학원: 500m 안 <b>${i.a5 ?? "–"}</b>개 · 1km 안 <b>${i.a1 ?? "–"}</b>개
-        ${i.a1 != null ? `<span class="note">(서울 단지 중 상위 ${100 - state.acadPct(i.a1)}%)</span>` : ""}</div></div>
+    <div class="card"><h3>🎒 학군 <b class="lsc">${i.sE ?? "–"}</b><small>점</small>
+      ${eduTags(i).map((t) => `<span class="tag">${t}</span>`).join(" ")}</h3>
+      ${i.es == null && i.a1 == null ? `<div class="note">학군 정보를 수집 중입니다 (곧 자동으로 채워집니다)</div>` : `
+      <table class="kv">${(() => { const p = eduParts(i); return [
+        ["초등학교", i.es, i.em, p.초, "35%"], ["중학교", i.ms, i.mm, p.중, "20%"], ["고등학교", i.hs, i.hm, p.고, "15%"],
+      ].map(([k, n, m, s, w]) => `<tr><td>${k} <span class="note">${w}</span></td><td>${esc(n ?? "2km 안 없음")}</td><td><b>${dist(m)}</b></td><td>${s ?? "–"}점</td></tr>`).join("") +
+        `<tr><td>학원가 <span class="note">30%</span></td><td>1km 안 ${i.a1 ?? "–"}개 · 500m 안 ${i.a5 ?? "–"}개</td>
+          <td>${i.a1 != null ? "상위 " + (100 - p.학원) + "%" : "–"}</td><td>${p.학원 ?? "–"}점</td></tr>`; })()}</table>
+      <div class="note">초품아 = 초등학교 300m 이내. 거리는 직선거리. 학교별 학업성취도는 2017년 이후 비공개라 학원가 밀도를 학군 대리지표로 사용합니다.</div>`}</div>
     <div class="card"><h3>최근 거래</h3><table id="trades"><tr><td>불러오는 중…</td></tr></table></div>
     <div class="card" id="remarks"></div>
     <div class="card"><h3>📝 내 메모 <span class="note">나만 보임</span></h3>
@@ -756,7 +787,8 @@ async function renderCompare() {
   const xs = codes.map((c) => state.byCode[c]);
   const palette = ["#0f766e", "#f59e0b", "#6366f1", "#e11d48"];
   const rows = [
-    ["입지점수", (i) => i.ls ?? "–"], ["규모/학군/역", (i) => `${i.sH ?? "–"}/${i.sE ?? "–"}/${i.sS ?? "–"}`],
+    ["입지점수", (i) => i.ls ?? "–"], ["출근/규모/학군/역", (i) => `${i.sA ?? "–"}/${i.sH ?? "–"}/${i.sE ?? "–"}/${i.sS ?? "–"}`],
+    ["초·중·고", (i) => `${dist(i.em)}<br>${dist(i.mm)}<br>${dist(i.hm)}`],
     ["84㎡ 매매", (i) => won(i.p84)], ["84㎡ 전세", (i) => won(i.j84)], ["전세가율", (i) => i.jr != null ? i.jr + "%" : "–"],
     ["평당가", (i) => won(i.p)], ["1년", (i) => `<span class="${cls(i.r1)}">${pct(i.r1)}</span>`],
     ["3년", (i) => `<span class="${cls(i.r3)}">${pct(i.r3)}</span>`], ["주변대비", (i) => pct(i.kp)],
