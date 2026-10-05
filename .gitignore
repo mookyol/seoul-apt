@@ -6,3 +6,5 @@ __pycache__/
 site/data/
 # 가치 모델 결과는 배포할 때 자동 계산
 data/model/
+# OpenStreetMap 원본 (용량 큼) — build_network.py가 가공한 subway_graph.json만 커밋
+data/network/osm_*.json

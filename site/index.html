@@ -12,6 +12,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -34,6 +35,11 @@
         <option value="ac">색: 출근 접근성</option>
       </select>
       <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정</label>
+    </div>
+    <div class="map-ctl map-ctl2">
+      <label class="chk"><input type="checkbox" id="m-subway" checked> 지하철</label>
+      <label class="chk"><input type="checkbox" id="m-gu" checked> 구 경계</label>
+      <select id="m-base"><option value="clean">지도: 깔끔</option><option value="color">지도: 컬러</option></select>
     </div>
     <div class="legend" id="legend"></div>
   </section>
@@ -61,6 +67,7 @@
         </optgroup>
         <optgroup label="입지">
           <option value="sd">역 가까운 순</option>
+          <option value="ct">출근 시간 짧은 순 (선택한 출근지)</option>
           <option value="ac">출근 접근성 높은 순</option>
           <option value="bk">업무지구 가까운 순</option>
           <option value="sE">학군 점수 높은 순 (초중고+학원)</option>
@@ -90,6 +97,12 @@
       <label>세대수 <select id="f-hh">
         <option value="">전체</option><option>300</option><option>500</option><option>1000</option><option>2000</option>
       </select> 이상</label>
+      <label>출근지 <select id="f-cw">
+        <option value="1">강남</option><option value="0">광화문·종로</option><option value="2">여의도</option>
+        <option value="3">판교</option><option value="4">마곡</option><option value="5">성수</option><option value="6">가산·구로</option>
+      </select> 까지 <select id="f-cm">
+        <option value="">시간 무관</option><option>20</option><option>30</option><option>40</option><option>50</option><option>60</option>
+      </select> 분 이내</label>
       <label>역까지 <select id="f-sd">
         <option value="">전체</option><option>300</option><option>500</option><option>1000</option>
       </select> m 이내</label>
@@ -157,6 +170,8 @@
 <article class="sheet" id="sheet" hidden></article>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>

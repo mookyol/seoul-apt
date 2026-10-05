@@ -18,10 +18,10 @@ OUT = ROOT / "data" / "model"
 PYEONG = 3.305785
 K_PRICE = 5      # 시세 베이즈 축소 강도 (거래 n건 vs 동·연식대 기준값 K건 몫)
 K_INDEX = 3      # 분기 지수 축소 강도
-HUBS = [         # 업무지구 (이름, 위도, 경도, 일자리 가중치 — ⚠️ 임시값, 전국사업체조사 종사자 수로 교체 예정)
-    ("광화문·종로", 37.5759, 126.9768, 1.00), ("강남", 37.4979, 127.0276, 1.00),
-    ("여의도", 37.5216, 126.9243, 0.60), ("판교", 37.3948, 127.1112, 0.45),
-    ("마곡", 37.5602, 126.8254, 0.25), ("성수", 37.5446, 127.0559, 0.25), ("가산·구로", 37.4816, 126.8826, 0.35),
+HUBS = [         # 업무지구 (이름, 위도, 경도, 일자리 가중치 — 고소득 일자리 밀집도 반영한 임시값, 전국사업체조사로 정교화 예정)
+    ("광화문·종로", 37.5759, 126.9768, 1.00), ("강남", 37.4979, 127.0276, 1.50),
+    ("여의도", 37.5216, 126.9243, 0.60), ("판교", 37.3948, 127.1112, 0.30),
+    ("마곡", 37.5602, 126.8254, 0.20), ("성수", 37.5446, 127.0559, 0.30), ("가산·구로", 37.4816, 126.8826, 0.20),
 ]
 
 
@@ -164,6 +164,21 @@ def access_index(cx):
     return d, lambda beta: (np.exp(-beta * d) * w).sum(axis=1)
 
 
+def commute_table(cx):
+    """단지별 업무지구 7곳 대중교통 출근 시간(분) — commute.py (노선망이 없으면 None)"""
+    try:
+        from commute import HUBS as CHUBS, Commute
+        c = Commute()
+    except FileNotFoundError:
+        return None
+    la, lo = pd.to_numeric(cx["위도"], errors="coerce"), pd.to_numeric(cx["경도"], errors="coerce")
+    rows = {}
+    for code in cx.index[la.notna()]:
+        t = c.times(la[code], lo[code])
+        rows[code] = {h: t[h][0] for h in CHUBS}
+    return pd.DataFrame.from_dict(rows, orient="index").astype(float)
+
+
 def pct(s):
     return s.rank(pct=True)
 
@@ -179,16 +194,24 @@ def main():
     print(f"① 정제: {n0:,}건 → 이상치 {removed:,}건 제거 → {len(df):,}건 / 보정 시세 단지 {len(price):,}개")
     print("   층 계수(서울 중앙값):", {k: round(float(v), 3) for k, v in coef.median().items()})
 
-    # ③ 임시 접근성
-    dist, acc = access_index(cx)
+    # ③ 출근 접근성: 대중교통 출근 시간(지하철 노선망) 기반 중력모형 A = Σ 일자리가중치 × exp(-β × 분)
     target = price["lp_shrunk"].reindex(cx.index)
-    best, best_r = 0.1, -1
-    for b in np.arange(0.05, 0.55, 0.05):
+    commute_min = commute_table(cx)
+    if commute_min is not None:
+        w = pd.Series([h[3] for h in HUBS], index=commute_min.columns)   # HUBS와 commute.HUBS는 같은 순서
+        acc = lambda b: (np.exp(-b * commute_min.fillna(180)) * w).sum(axis=1)
+        betas, kind = np.arange(0.02, 0.11, 0.01), "대중교통 출근시간"
+    else:
+        dist, acc = access_index(cx)
+        betas, kind = np.arange(0.05, 0.55, 0.05), "직선거리(임시)"
+    best, best_r = betas[0], -1
+    for b in betas:
         r = pd.concat([acc(b), target], axis=1).corr(method="spearman").iloc[0, 1]
         if r > best_r:
             best, best_r = b, r
-    access = (pct(acc(best)) * 100).round(1).where(dist.notna().all(axis=1))
-    print(f"③ 접근성(임시): β={best:.2f}, 시세와 순위상관 {best_r:.2f}")
+    has_xy = pd.to_numeric(cx["위도"], errors="coerce").notna()
+    access = (pct(acc(best)[has_xy]) * 100).round(1)
+    print(f"③ 접근성({kind}): β={best:.2f}, 시세와 순위상관 {best_r:.2f}")
 
     # ④ 하락 방어력
     g = quarter_index(df)
@@ -224,6 +247,8 @@ def main():
         "보정평당가": (np.exp(price["lp_shrunk"]) * PYEONG).round(0),
         "시세신뢰도": price["confidence"], "최근6개월거래": price["n"],
         "접근성": access.reindex(price.index),
+        **({f"출근_{h}": commute_min[h].reindex(price.index) for h in commute_min.columns}
+           if commute_min is not None else {}),
         "낙폭2022": (risk["mdd"] * 100).round(1), "낙폭추정": risk["mdd_est"],
         "지역베타": risk["beta"].round(2), "전세가율": (risk["jeonse_ratio"] * 100).round(0),
         "구입주물량비율": (risk["supply"] * 100).round(2), "거래회전율": (risk["turnover"] * 100).round(1),

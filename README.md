@@ -7,3 +7,8 @@
 - `.github/workflows/collect.yml` — 매일 새벽 3시(KST) 최근 3개월 자동 갱신
 
 데이터 출처: 국토교통부 실거래가 공개시스템 / 공공데이터포털. 본 자료는 투자 권유가 아닙니다.
+
+## 지도·노선 데이터 출처
+- 지하철·광역철도 노선과 역: © OpenStreetMap contributors (ODbL) — `build_network.py`로 가공 (`data/network/subway_graph.json`)
+- 배경지도: OpenFreeMap / OpenMapTiles / OpenStreetMap
+- 서울 구 경계: southkorea/seoul-maps (Apache 2.0, 통계청 2013 경계)

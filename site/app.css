@@ -104,6 +104,12 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .map-ctl select, .chk { background: var(--card); border: 0; border-radius: 10px; padding: 7px 10px; font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,.15); }
 .chk { display: flex; gap: 4px; align-items: center; }
+.map-ctl2 { top: 52px; }
+.gu-label { font-size: 13px; font-weight: 800; color: #1e293b; white-space: nowrap; transform: translate(-50%, -50%);
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; letter-spacing: -0.3px; }
+.st-label { font-size: 11px; font-weight: 700; color: #111827; white-space: nowrap;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff; }
+.maplibregl-canvas { outline: none; }
 .sup-marker { font-size: 18px; text-shadow: 0 0 3px #fff; }
 
 .badge { display: inline-block; background: var(--up); color: #fff; font-size: 11px; border-radius: 6px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; }
@@ -161,6 +167,9 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .grade { display: inline-block; min-width: 24px; text-align: center; border-radius: 6px; color: #fff; font-weight: 800; padding: 0 6px; }
 .gA { background: #047857; } .gB { background: #10b981; } .gC { background: #f59e0b; } .gD { background: #ef4444; }
 .kv td { text-align: left; } .kv td:last-child { text-align: right; }
+.commute td:nth-child(2) { width: 45%; }
+.commute td i { display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--brand) var(--v), var(--line) var(--v)); }
+.commute tr.sel td { font-weight: 700; color: var(--brand); }
 .ginfo { display: inline-block; margin-left: 4px; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%;
   background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 700; text-decoration: none; vertical-align: 2px; }
 .toc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

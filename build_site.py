@@ -70,6 +70,9 @@ def display_name(name, dong, kapt):
     return stem + name if stem and not name.startswith(stem) else name
 
 
+COMMUTE_HUBS = ["광화문", "강남", "여의도", "판교", "마곡", "성수", "가산·구로"]   # commute.HUBS 순서 (웹앱과 동일)
+
+
 def value_fields(v):
     """value_model.py 결과 → 웹용 짧은 키"""
     if not v:
@@ -82,6 +85,8 @@ def value_fields(v):
         "bt": f("지역베타"), "jr2": f("전세가율"), "su": f("구입주물량비율"), "to": f("거래회전율"),
         "df": f("방어력"), "dg": v.get("방어등급") if v.get("방어등급") not in ("", "nan") else None,
         "jw": v.get("전세경고") == "True", "th": v.get("표본적음") == "True",
+        "ct": [int(f(f"출근_{h}")) if f(f"출근_{h}") is not None else None for h in COMMUTE_HUBS]
+              if f(f"출근_{COMMUTE_HUBS[0]}") is not None else None,              # 업무지구별 대중교통 출근 분
         "fv": f("적정평당가"), "gp": f("괴리율"),                                # ② 모델 적정가, 괴리율 %
         "rs": v["가격이유"].split("|") if v.get("가격이유") else None,          # 가격 이유 TOP3
     }

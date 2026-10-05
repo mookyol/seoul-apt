@@ -47,6 +47,9 @@ const PRESETS = {
   "대단지 안정형": { a: 25, h: 45, e: 15, s: 15 },
 };
 const WKEYS = ["a", "h", "e", "s"];
+const HUB_NAMES = ["광화문", "강남", "여의도", "판교", "마곡", "성수", "가산·구로"];   // build_site.py COMMUTE_HUBS 순서
+const cwIdx = () => +($("#f-cw")?.value ?? 1);
+const ctOf = (i) => i.ct?.[cwIdx()] ?? null;   // 선택한 출근지까지 분
 const weights = () => {
   const w = store.get("weights", null);
   return w && WKEYS.every((k) => k in w) ? w : { ...PRESETS["데이터 추천형"] };   // 예전 3요소 저장값은 새 기본값으로
@@ -142,6 +145,10 @@ async function init() {
   $("#sheet-bg").addEventListener("click", () => history.back());
   $("#m-color").addEventListener("change", () => { store.set("mcolor", $("#m-color").value); drawMarkers(); });
   $("#m-supply").addEventListener("change", toggleSupplyLayer);
+  $("#m-subway").addEventListener("change", onZoom);
+  $("#m-gu").addEventListener("change", onZoom);
+  $("#m-base").value = store.get("mbase", "clean");
+  $("#m-base").addEventListener("change", () => { store.set("mbase", $("#m-base").value); setBase($("#m-base").value); });
   $("#cmp-bar").addEventListener("click", () => (location.hash = "cmp"));
   window.addEventListener("hashchange", route);
   $("#m-color").value = store.get("mcolor", "ls");
@@ -183,7 +190,7 @@ if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
 }
 
 function saveFilters() {
-  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg"];
+  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg", "#f-cw", "#f-cm"];
   store.set("filters", Object.fromEntries(ids.map((id) => [id, $(id).value])));
 }
 
@@ -237,27 +244,91 @@ function colorOf(mode, v) {
   if (v == null) return "#9ca3af";
   for (const [min, c] of COLOR_MODES[mode].stops) if (v >= min) return c;
 }
+// 배경지도: OpenFreeMap 벡터 지도 (무료·키 없음) — 네이버·카카오처럼 깔끔한 스타일. 불러오기 실패 시 OSM 기본 지도
+const BASES = { clean: "https://tiles.openfreemap.org/styles/positron", color: "https://tiles.openfreemap.org/styles/liberty" };
+async function koreanStyle(url) {
+  // 배경지도 글자를 한글 이름으로 (기본 스타일은 영문 병기)
+  try {
+    const st = await (await fetch(url)).json();
+    for (const l of st.layers) if (l.layout?.["text-field"]) l.layout["text-field"] = ["coalesce", ["get", "name:ko"], ["get", "name"]];
+    return st;
+  } catch { return url; }
+}
+async function setBase(kind) {
+  if (state.base) state.map.removeLayer(state.base);
+  state.base = L.maplibreGL
+    ? L.maplibreGL({ style: await koreanStyle(BASES[kind] || BASES.clean),
+        attribution: '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' })
+    : L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' });
+  state.base.addTo(state.map);
+}
 function initMap() {
-  state.map = L.map("map", { preferCanvas: true, zoomControl: false }).setView([37.5565, 126.99], 11);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(state.map);
+  state.map = L.map("map", { preferCanvas: true, zoomControl: false, maxZoom: 18 }).setView([37.5565, 126.99], 11);
+  for (const [name, z] of [["guPane", 350], ["linePane", 360], ["stationPane", 420], ["labelPane", 430]]) {
+    state.map.createPane(name).style.zIndex = z;
+  }
+  state.map.getPane("labelPane").style.pointerEvents = "none";
+  setBase(store.get("mbase", "clean"));
   L.control.zoom({ position: "topright" }).addTo(state.map);
   state.layer = L.layerGroup().addTo(state.map);
   drawMarkers();
+  loadOverlays();
+  state.map.on("zoomend", onZoom);
+}
+// 구 경계 + 구 이름, 지하철 노선 + 역 (지도 위 보조 레이어)
+async function loadOverlays() {
+  try {
+    const gu = await (await fetch("static/seoul_gu.geojson")).json();
+    state.guLayer = L.geoJSON(gu, { pane: "guPane", interactive: false,
+      style: { color: "#334155", weight: 1.6, opacity: 0.75, fill: true, fillOpacity: 0.02, dashArray: "5 4" } });
+    state.guLabels = L.layerGroup(gu.features.map((f) => {
+      const ring = f.geometry.type === "Polygon" ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
+      const c = ring.reduce((a, p) => [a[0] + p[1] / ring.length, a[1] + p[0] / ring.length], [0, 0]);
+      return L.marker(c, { pane: "labelPane", interactive: false,
+        icon: L.divIcon({ className: "gu-label", html: f.properties.name, iconSize: null }) });
+    }));
+  } catch (e) { console.warn("구 경계 불러오기 실패", e); }
+  try {
+    const sub = await (await fetch("static/subway.json")).json();
+    const lineR = L.canvas({ pane: "linePane" });
+    state.subLines = L.layerGroup(sub.lines.map((l) =>
+      L.polyline(l.segs, { color: l.color, weight: 3, opacity: 0.85, renderer: lineR, interactive: false })));
+    const stR = L.canvas({ pane: "stationPane" });
+    state.stations = L.layerGroup(sub.stations.map((s) =>
+      L.circleMarker([s.la, s.lo], { renderer: stR, radius: s.c.length > 1 ? 4.5 : 3.5, weight: 2,
+        color: s.c.length > 1 ? "#111827" : s.c[0], fillColor: "#fff", fillOpacity: 1 })
+        .bindTooltip(`${esc(s.n)}역`, { direction: "top" })));
+    state.stLabels = L.layerGroup(sub.stations.map((s) => L.marker([s.la, s.lo], { pane: "labelPane", interactive: false,
+      icon: L.divIcon({ className: "st-label", html: `${esc(s.n)}`, iconSize: null, iconAnchor: [-6, 6] }) })));
+  } catch (e) { console.warn("지하철 노선 불러오기 실패", e); }
+  onZoom();
+}
+function onZoom() {
+  const z = state.map.getZoom(), m = state.map;
+  const show = (layer, on) => layer && (on ? !m.hasLayer(layer) && layer.addTo(m) : m.hasLayer(layer) && m.removeLayer(layer));
+  const sub = $("#m-subway")?.checked ?? true, gu = $("#m-gu")?.checked ?? true;
+  show(state.guLayer, gu); show(state.guLabels, gu && z <= 13);
+  show(state.subLines, sub); show(state.stations, sub && z >= 12); show(state.stLabels, sub && z >= 14);
+  state.subLines?.eachLayer((l) => l.setStyle({ weight: z <= 11 ? 2 : z <= 13 ? 3 : 5 }));
+  const k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : z <= 14 ? 1 : 1.3;   // 축소하면 단지 점을 작게
+  for (const [mk, r] of state.markers || []) mk.setRadius(r * k);
 }
 function drawMarkers() {
   if (!state.layer) return;
   const mode = $("#m-color").value;
   state.layer.clearLayers();
+  state.markers = [];
+  const z = state.map.getZoom(), k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : z <= 14 ? 1 : 1.3;
   for (const it of state.items) {
     if (!it.la) continue;
     const r = it.h ? Math.min(4 + Math.sqrt(it.h) / 6, 14) : 4;
     const rm = cloud.counts[it.c];   // 지인 리마크가 있는 단지는 굵은 테두리
-    L.circleMarker([it.la, it.lo], { radius: r, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: colorOf(mode, it[mode]), fillOpacity: 0.85 })
+    const mk = L.circleMarker([it.la, it.lo], { radius: r * k, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: colorOf(mode, it[mode]), fillOpacity: 0.85 })
       .bindTooltip(`${esc(it.n)} · 입지 ${it.ls ?? "–"} · ${won(it.p84)}`, { direction: "top" })
       .on("click", () => openDetail(it.c))
       .addTo(state.layer);
+    state.markers.push([mk, r]);
   }
   $("#legend").innerHTML = COLOR_MODES[mode].label + " " +
     [...COLOR_MODES[mode].stops.map(([, c, t]) => [c, t]), ["#9ca3af", "자료없음"]]
@@ -424,7 +495,7 @@ function filtered() {
   const q = $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
         sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value,
-        dg = $("#f-dg").value;
+        dg = $("#f-dg").value, cm = +$("#f-cm").value;
   // 띄어쓴 단어가 모두 들어 있으면 일치 (예: "천호동 528", "천호 삼성", "잠실 엘스")
   const words = q.split(/\s+/).filter(Boolean);
   const hay = (i) => (i._hay ??= [i.n, i.al, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
@@ -437,14 +508,15 @@ function filtered() {
     (!es || (i.em != null && i.em <= es)) &&
     (!age || (age > 0 ? i.y && thisYear - i.y <= age : i.y && thisYear - i.y >= -age)) &&
     (!n || i.n12 >= n) &&
-    (!dg || (i.dg && dg.includes(i.dg))));
+    (!dg || (i.dg && dg.includes(i.dg))) &&
+    (!cm || (ctOf(i) != null && ctOf(i) <= cm)));
   const hi = (k) => (i) => -(i[k] ?? -1e9), lo = (k) => (i) => i[k] ?? 1e9;
   const key = {
     ls: hi("ls"), r1: hi("r1"), r3: hi("r3"), kp: lo("kp"), kr: lo("kr"), jr: hi("jr"), n12: hi("n12"), vt: hi("vt"),
     sd: lo("sd"), bk: lo("bk"), em: lo("em"), a1: hi("a1"), pAsc: lo("p"), pDesc: hi("p"),
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
     df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
-    gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"),
+    gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"), ct: (i) => ctOf(i) ?? 1e9,
   }[$("#f-sort").value];
   return xs.sort((a, b) => key(a) - key(b));
 }
@@ -458,6 +530,7 @@ function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수�
     ac: [`출근 ${i.ac ?? "–"}`, ""],
     gpA: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)], gpD: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)],
     sE: [`학군 ${i.sE ?? "–"}점`, ""],
+    ct: [`${HUB_NAMES[cwIdx()]} ${ctOf(i) ?? "–"}분`, ""],
   }[s] || [`1년 ${pct(i.r1)}`, cls(i.r1)];
 }
 function remarkBadge(code) {
@@ -472,7 +545,7 @@ function itemHTML(i, rank) {
     <div class="nm">${rank ? `<span class="rk">${rank}</span>` : ""}${isFav(i.c) ? "⭐ " : ""}${esc(i.n)}${isNew(i) ? '<span class="badge">새 거래</span>' : ""}${remarkBadge(i.c)}</div>
     <div class="px">${i.p84 ? "84㎡ " + won(i.p84) : i.p59 ? "59㎡ " + won(i.p59) : "평당 " + won(i.p)}</div>
     <div class="sub">${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}<br>
-      🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${i.em != null ? ` · 🎒 초 ${dist(i.em)} 중 ${dist(i.mm)} 고 ${dist(i.hm)}` : ""}</div>
+      🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${ctOf(i) != null ? ` · 🏙️ ${HUB_NAMES[cwIdx()]} ${ctOf(i)}분` : ""}${i.em != null ? `<br>🎒 초 ${dist(i.em)} 중 ${dist(i.mm)} 고 ${dist(i.hm)}` : ""}</div>
     <div class="chg"><span class="lsc">${i.ls ?? "–"}<small>점</small></span><br><span class="${c}">${m}</span></div>
     ${scoreBars(i)}
   </li>`;
@@ -590,9 +663,12 @@ async function renderDetail(code) {
     ${i.vp ? `<div class="card"><h3>🧹 보정 시세${guideLink("price")} <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
       <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
       ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
-    <div class="card"><h3>🚇 교통</h3>
+    <div class="card"><h3>🚇 교통 · 출근 시간${guideLink("ac")}</h3>
       <div>${esc(i.st ?? "–")} <b>${dist(i.sd)}</b>${i.sl > 1 ? ` · 500m 안 ${i.sl}개 노선` : ""}</div>
-      <div class="note">${esc(i.bz ?? "")} 업무지구 직선거리 ${i.bk ?? "–"}km</div></div>
+      ${i.ct ? `<table class="kv commute">${HUB_NAMES.map((h, k) => [h, i.ct[k]]).filter(([, m]) => m != null).sort((x, y) => x[1] - y[1])
+        .map(([h, m]) => `<tr class="${h === HUB_NAMES[cwIdx()] ? "sel" : ""}"><td>🏙️ ${h}</td><td><i style="--v:${Math.max(4, 100 - m)}%"></i></td><td><b>${m}분</b></td></tr>`).join("")}</table>
+        <div class="note">대중교통(지하철·광역철도) 기준 근사치 — 도보·대기·환승 포함. 버스 노선은 일부만 반영됩니다.</div>`
+        : `<div class="note">출근 시간 계산 대기 중 (위치 정보 수집 후 자동 계산)</div>`}</div>
     <div class="card"><h3>🎒 학군 <b class="lsc">${i.sE ?? "–"}</b><small>점</small>${guideLink("edu")}
       ${eduTags(i).map((t) => `<span class="tag">${t}</span>`).join(" ")}</h3>
       ${i.es == null && i.a1 == null ? `<div class="note">학군 정보를 수집 중입니다 (곧 자동으로 채워집니다)</div>` : `
@@ -780,11 +856,18 @@ const GUIDE = [
       ${Object.entries(PRESETS).map(([k, w]) => `<tr><td>${k === "데이터 추천형" ? "⭐ " : ""}${k}</td><td>${w.a}</td><td>${w.h}</td><td>${w.e}</td><td>${w.s}</td></tr>`).join("")}</table>
     <div class="note">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승률과 관련이 컸던 순서(업무지구 > 규모 ≈ 학군 > 역)대로 정한 비중.
       위치 정보가 아직 없는 단지는 점수를 보류합니다.</div>`],
-  ["ac", "🏙️ 출근 접근성", `
-    <div>업무지구 7곳까지의 거리를 <b>일자리 규모로 가중</b>해 합산한 뒤(중력모형), 서울 단지 중 <b>백분위</b>로 바꿉니다.</div>
-    <div class="note">업무지구: 광화문·종로(1.0) · 강남(1.0) · 여의도(0.6) · 판교(0.45) · 가산·구로(0.35) · 마곡(0.25) · 성수(0.25)<br>
-      거리가 멀어질수록 영향이 줄어드는 정도(β)는 시세와 가장 잘 맞도록 자동 보정합니다.
-      <b>임시판</b>: 실제 대중교통 출근시간이 아닌 직선거리 기반이며, 추후 실제 통행시간으로 교체 예정입니다.</div>`],
+  ["ac", "🏙️ 출근 시간 · 출근 접근성", `
+    <div><b>출근 시간(분)</b>: 단지 → (도보 또는 버스) → 지하철역 → (노선·환승) → 업무지구 역 → 도보 5분.
+      수도권 지하철·광역철도 22개 노선(1~9호선, 신분당, 경의중앙, 수인분당, 공항철도, GTX-A, 서해, 경춘, 경강, 우이신설, 신림, 김포골드 등)의
+      역 순서·위치(OpenStreetMap)로 계산합니다.</div>
+    <table class="kv"><tr><td>도보</td><td>직선거리 × 1.25 ÷ 시속 4.5km</td></tr>
+      <tr><td>역이 1.2km보다 멀면</td><td>버스 연계도 비교 (시속 15km + 대기 7분)</td></tr>
+      <tr><td>승차 대기 / 환승</td><td>4분 / 5~6분</td></tr>
+      <tr><td>열차 평균 속도(정차 포함)</td><td>일반 31 · 수인분당 36 · 경의중앙·경춘 42 · 급행 45 · 공항철도 50 · 신분당 55 · GTX-A 80 km/h</td></tr></table>
+    <div><b>출근 접근성(0~100)</b>: 업무지구 7곳 출근 시간을 일자리 가중치로 합친 값(가까울수록 큼)의 서울 내 백분위.
+      가중치 강남 1.5 · 광화문 1.0 · 여의도 0.6 · 판교 0.3 · 성수 0.3 · 마곡 0.2 · 가산 0.2 (고소득 일자리 밀집도 기준 임시값).</div>
+    <div class="note">실제 길찾기 앱보다 ±5~10분 차이가 날 수 있는 <b>근사치</b>입니다. 배차 간격·혼잡·급행 대기는 반영하지 않습니다.
+      순위 탭 필터에서 "출근지 + 몇 분 이내"로 거를 수 있습니다.</div>`],
   ["size", "🏢 단지 규모", `
     <table class="kv"><tr><td>2,000세대 이상</td><td>100</td></tr><tr><td>1,000~1,999</td><td>80</td></tr><tr><td>500~999</td><td>60</td></tr>
       <tr><td>300~499</td><td>40</td></tr><tr><td>300 미만 · 세대수 정보 없음</td><td>20</td></tr></table>
@@ -894,7 +977,7 @@ async function renderCompare() {
     ["준공", (i) => i.y ?? "–"], ["세대수", (i) => i.h?.toLocaleString() ?? "–"],
     ["역", (i) => `${esc(i.st ?? "–")}<br>${dist(i.sd)}`], ["초등학교", (i) => dist(i.em)], ["학원(1km)", (i) => i.a1 ?? "–"],
     ["거래(1년)", (i) => i.n12], ["하락 방어력", (i) => i.dg ? `${i.dg} (${i.df})` : "–"],
-    ["'22 낙폭", (i) => i.dd != null ? `-${i.dd}%${i.de ? "*" : ""}` : "–"], ["출근 접근성", (i) => i.ac ?? "–"],
+    ["'22 낙폭", (i) => i.dd != null ? `-${i.dd}%${i.de ? "*" : ""}` : "–"], ["출근 접근성", (i) => i.ac ?? "–"], ["출근(분) 강남/광화문/여의도", (i) => i.ct ? `${i.ct[1]}/${i.ct[0]}/${i.ct[2]}` : "–"],
   ];
   openSheet(`
     <div class="sh-head"><h2 style="flex:1">📊 단지 비교</h2>
