@@ -68,12 +68,17 @@
         <optgroup label="지인">
           <option value="rm">리마크 많은 순</option>
         </optgroup>
+        <optgroup label="모델 적정가 (참고용)">
+          <option value="gpD">모델보다 비싼 순 (시장 프리미엄)</option>
+          <option value="gpA">모델보다 싼 순</option>
+        </optgroup>
         <optgroup label="가격">
           <option value="pAsc">평당가 낮은 순</option>
           <option value="pDesc">평당가 높은 순</option>
         </optgroup>
       </select>
       <button id="f-more" class="chip">필터 ▾</button>
+      <a class="chip" href="#score" style="text-decoration:none;color:inherit">📊 성적표</a>
     </div>
     <div class="filters more" id="more" hidden>
       <label>84㎡ 예산 <select id="f-budget">

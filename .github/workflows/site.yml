@@ -7,7 +7,7 @@ on:
     types: [completed]
   push:
     branches: [main]
-    paths: ["site/**", "build_site.py", "value_model.py", "data/complexes.csv"]
+    paths: ["site/**", "build_site.py", "value_model.py", "fair_value.py", "backtest.py", "data/complexes.csv"]
   workflow_dispatch:
 
 permissions:
@@ -34,10 +34,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install pandas numpy
+      - run: pip install pandas numpy lightgbm scikit-learn
 
       - name: 가치 모델 (정제 시세 · 하락 방어력 · 접근성)
         run: python value_model.py
+
+      - name: 적정가 모델 + 백테스트 (점수 성적표)
+        run: |
+          python fair_value.py
+          python backtest.py
 
       - name: 웹앱용 데이터 계산
         run: python build_site.py

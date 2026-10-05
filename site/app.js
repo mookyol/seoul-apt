@@ -406,6 +406,7 @@ function filtered() {
     sd: lo("sd"), bk: lo("bk"), em: lo("em"), a1: hi("a1"), pAsc: lo("p"), pDesc: hi("p"),
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
     df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
+    gpA: lo("gp"), gpD: hi("gp"),
   }[$("#f-sort").value];
   return xs.sort((a, b) => key(a) - key(b));
 }
@@ -417,6 +418,7 @@ function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수�
     em: [`초 ${dist(i.em)}`, ""], a1: [`학원 ${i.a1 ?? "–"}`, ""],
     df: [`방어 ${i.dg ?? "–"} (${i.df ?? "–"})`, ""], dd: [`'22 낙폭 ${i.dd != null ? "-" + i.dd + "%" : "–"}${i.de ? " 추정" : ""}`, "down"],
     ac: [`출근 ${i.ac ?? "–"}`, ""],
+    gpA: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)], gpD: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)],
   }[s] || [`1년 ${pct(i.r1)}`, cls(i.r1)];
 }
 function remarkBadge(code) {
@@ -468,6 +470,7 @@ function route() {
   else if (location.hash.startsWith("#s=")) renderSub(decodeURIComponent(location.hash.slice(3)));
   else if (location.hash === "#cmp" && cmps().length) renderCompare();
   else if (location.hash === "#join") renderJoin();
+  else if (location.hash === "#score") renderScorecard();
   else closeSheet();
 }
 function closeSheet() {
@@ -538,6 +541,12 @@ async function renderDetail(code) {
         <tr><td>거래회전율 (1년 거래÷세대)</td><td>${i.to != null ? i.to + "%" : "–"}</td></tr>
       </table>
       <div class="note">구성: 낙폭 35% · 베타 15% · 전세가율 20% · 입주물량 15% · 회전율 15% (서울 내 백분위). 가중치는 백테스트로 조정 예정.</div></div>` : ""}
+    ${i.fv ? `<div class="card"><h3>⚖️ 모델 적정가 <span class="note">위치·연식·규모·브랜드·역·학군으로 학습 (이 동네는 빼고 예측)</span></h3>
+      <div class="kmsg">모델 적정가 평당 <b>${won(Math.round(i.fv))}</b> vs 보정 시세 <b>${won(Math.round(i.vp))}</b>
+        → <b class="${cls(i.gp)}">${i.gp > 0 ? "모델보다 " + i.gp + "% 비쌈" : "모델보다 " + Math.abs(i.gp) + "% 쌈"}</b></div>
+      ${i.rs ? `<div>가격을 만드는 요인: ${i.rs.map((r) => `<span class="tag">${esc(r)}</span>`).join(" ")}</div>` : ""}
+      <div class="note" style="margin-top:6px">⚠️ 백테스트 결과 '모델보다 싼 단지'가 이후 더 오르지는 않았습니다 (모델이 못 보는 약점 때문에 싼 경우가 많음).
+        매수 신호가 아니라 <b>가격 수준 참고용</b>입니다. <a href="#score">점수 성적표 보기</a></div></div>` : ""}
     ${i.vp ? `<div class="card"><h3>🧹 보정 시세 <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
       <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
       ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
@@ -711,6 +720,34 @@ function renderJoin() {
     try { await cloud.join(code, nick); history.back(); }
     catch (e) { $("#j-msg").textContent = "❌ " + e.message; }
   };
+}
+
+// ---------- 점수 성적표 (백테스트 공개) ----------
+function renderScorecard() {
+  const bt = state.meta.backtest || [], fm = state.meta.fair;
+  const factors = bt.length ? Object.keys(bt[0].factors || {}) : [];
+  const cell = (v) => `<td class="${v > 0.1 ? "up" : v < -0.1 ? "down" : ""}">${v > 0 ? "+" : ""}${v.toFixed(2)}</td>`;
+  openSheet(`
+    <div class="sh-head"><h2 style="flex:1">📊 점수 성적표</h2><button class="icon-btn" data-close>✕</button></div>
+    <div class="card"><h3>무엇을 검증했나</h3>
+      <div>과거 시점(T)에 알 수 있었던 값으로 단지를 줄 세웠을 때, <b>T 이후 실제 상승률</b>과 얼마나 맞았는지(순위상관)를 봅니다.
+      <b class="up">+</b>는 "값이 클수록 더 올랐다", <b class="down">−</b>는 "값이 작을수록(가까울수록) 더 올랐다". ±0.1 미만은 사실상 무관입니다.</div></div>
+    ${bt.length ? `<div class="card" style="overflow-x:auto"><h3>요인별 성적 (순위상관)</h3>
+      <table><tr><th>요인</th>${bt.map((b) => `<th>${b.cutoff.slice(2, 7).replace("-", ".")}<br><span class="note">→${b.years}년</span></th>`).join("")}</tr>
+      ${factors.map((f) => `<tr><td>${esc(f)}</td>${bt.map((b) => cell(b.factors[f])).join("")}</tr>`).join("")}</table>
+      <div class="note">검증 단지 수: ${bt.map((b) => b.n.toLocaleString()).join(" / ")}개 (기준 시점 직전 6개월 거래 3건 이상)</div></div>
+    <div class="card"><h3>적정가 괴리율 5분위별 이후 상승률</h3>
+      <table><tr><th></th>${Object.keys(bt[0].quintile_return_pct).map((q) => `<th>${q}</th>`).join("")}</tr>
+      ${bt.map((b) => `<tr><td>${b.cutoff.slice(0, 7)}</td>${Object.values(b.quintile_return_pct).map((v) => `<td>${v}%</td>`).join("")}</tr>`).join("")}</table></div>` : `<div class="empty">백테스트 결과가 아직 없습니다</div>`}
+    <div class="card"><h3>💡 해석</h3>
+      <div>이 기간(2022~2026) 서울에서는 <b>업무지구에 가깝고, 이미 비싼 상급지, 대단지·브랜드</b>일수록 더 올랐고,
+      <b>'모델보다 싼 단지'는 오히려 덜 올랐습니다</b>. 싼 데는 이유가 있는 경우가 많았다는 뜻입니다.</div>
+      <div class="note" style="margin-top:6px">한계: 세 검증 구간이 모두 현재에서 끝나 서로 독립적이지 않고, 양극화 장세 한 번의 결과입니다.
+      과거 패턴이 미래에도 반복된다는 보장은 없습니다. 투자 판단은 본인 책임입니다.</div></div>
+    ${fm ? `<div class="card"><h3>⚖️ 적정가 모델 정보</h3>
+      <div>학습: 거래 ${fm.trades.toLocaleString()}건 · 단지 ${fm.complexes.toLocaleString()}개 (${fm.since.slice(0, 4)}년~)</div>
+      <div>공간 교차검증 오차: 전체 <b>${(fm.mape * 100).toFixed(1)}%</b> · 최근 1년 ${(fm.mape_recent * 100).toFixed(1)}% <span class="note">(그 동네를 빼고 예측했을 때)</span></div>
+      <div style="margin-top:6px">가격 결정 요인 비중: ${Object.entries(fm.weights).filter(([, v]) => v > 0.005).map(([k, v]) => `<span class="tag">${esc(k)} ${Math.round(v * 100)}%</span>`).join(" ")}</div></div>` : ""}`);
 }
 
 // ---------- 단지 비교 ----------

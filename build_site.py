@@ -82,6 +82,8 @@ def value_fields(v):
         "bt": f("지역베타"), "jr2": f("전세가율"), "su": f("구입주물량비율"), "to": f("거래회전율"),
         "df": f("방어력"), "dg": v.get("방어등급") if v.get("방어등급") not in ("", "nan") else None,
         "jw": v.get("전세경고") == "True", "th": v.get("표본적음") == "True",
+        "fv": f("적정평당가"), "gp": f("괴리율"),                                # ② 모델 적정가, 괴리율 %
+        "rs": v["가격이유"].split("|") if v.get("가격이유") else None,          # 가격 이유 TOP3
     }
 
 
@@ -204,6 +206,9 @@ def main():
         if (ROOT / "data" / "complexes.csv").exists() else {}
     vpath = ROOT / "data" / "model" / "complex_value.csv"     # value_model.py 결과 (정제 시세·방어력·접근성)
     value = {r["단지코드"]: r for r in read_csv(vpath)} if vpath.exists() else {}
+    fpath = ROOT / "data" / "model" / "fair_value.csv"          # fair_value.py 결과 (적정가·괴리율·가격 이유)
+    for r in read_csv(fpath) if fpath.exists() else []:
+        value.setdefault(r["단지코드"], {}).update(r)
 
     shutil.rmtree(OUT, ignore_errors=True)
     (OUT / "c").mkdir(parents=True)
@@ -313,6 +318,10 @@ def main():
 
     meta = {"updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
             "dataTo": last.isoformat(), "count": len(summary), "hasRent": bool(jeonse)}
+    for key, name in (("fair", "fair_value_meta.json"), ("backtest", "backtest.json")):   # 점수 성적표용
+        p = ROOT / "data" / "model" / name
+        if p.exists():
+            meta[key] = json.loads(p.read_text(encoding="utf-8"))
 
     subs = build_subscriptions(summary)
     if subs:
