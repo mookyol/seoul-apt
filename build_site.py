@@ -328,6 +328,15 @@ def main():
         if p.exists():
             meta[key] = json.loads(p.read_text(encoding="utf-8"))
 
+    # 📰 이슈 브리핑: 최근 14일치 (Claude 예약 작업이 data/news/에 커밋)
+    news = sorted((ROOT / "data" / "news").glob("20??-??-??.json"), reverse=True)[:14]
+    if news:
+        (OUT / "news").mkdir(parents=True, exist_ok=True)
+        for p in news:
+            shutil.copy(p, OUT / "news" / p.name)
+        (OUT / "news" / "index.json").write_text(json.dumps([p.stem for p in news]), encoding="utf-8")
+        meta["newsLatest"] = news[0].stem
+
     subs = build_subscriptions(summary)
     if subs:
         (OUT / "subs.json").write_text(json.dumps(subs, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

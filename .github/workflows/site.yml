@@ -7,7 +7,7 @@ on:
     types: [completed]
   push:
     branches: [main]
-    paths: ["site/**", "build_site.py", "value_model.py", "fair_value.py", "backtest.py", "commute.py", "data/network/**", "data/complexes.csv"]
+    paths: ["site/**", "build_site.py", "value_model.py", "fair_value.py", "backtest.py", "commute.py", "data/network/**", "data/news/**", "data/complexes.csv"]
   workflow_dispatch:
 
 permissions:

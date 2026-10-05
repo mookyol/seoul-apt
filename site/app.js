@@ -201,6 +201,7 @@ function showTab(name) {
   if (name === "map" && state.map) setTimeout(() => state.map.invalidateSize(), 0);
   if (name === "fav") renderFav();
   if (name === "supply") renderSupply();
+  if (name === "news") renderNews();
 }
 
 // ---------- 입지점수 비중 패널 ----------
@@ -488,6 +489,34 @@ async function renderSub(key) {
     <div class="card" id="remarks"></div>`);
   $$("#sheet .near tr[data-c]").forEach((tr) => (tr.onclick = () => openDetail(tr.dataset.c)));
   renderRemarks("청약-" + s.no);
+}
+
+// ---------- 📰 이슈 브리핑 ----------
+async function renderNews() {
+  const box = $("#news"), sel = $("#news-date");
+  if (!state.newsDates) {
+    try { state.newsDates = await (await fetch("data/news/index.json")).json(); } catch { state.newsDates = []; }
+    sel.innerHTML = state.newsDates.map((d) => `<option>${d}</option>`).join("");
+    sel.onchange = renderNews;
+  }
+  if (!state.newsDates.length) {
+    box.innerHTML = `<div class="empty">아직 브리핑이 없습니다.<br>매일 아침 7시에 자동으로 채워집니다.</div>`;
+    sel.hidden = true; return;
+  }
+  sel.hidden = false;
+  const d = sel.value || state.newsDates[0];
+  let n;
+  try { n = await (await fetch(`data/news/${d}.json`)).json(); } catch { box.innerHTML = `<div class="empty">브리핑을 불러오지 못했습니다</div>`; return; }
+  const item = (x) => `<li class="nw"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>
+    <div class="note">${esc(x.source || x.agency || "")}${x.date ? " · " + esc(x.date) : ""}</div>
+    ${x.summary ? `<div>${esc(x.summary)}</div>` : ""}</li>`;
+  box.innerHTML = `
+    ${n.briefing?.length ? `<div class="card brief"><h3>🗞️ 오늘의 3줄 브리핑 <span class="note">${esc(n.date)}</span></h3>
+      <ol>${n.briefing.map((b) => `<li>${esc(b)}</li>`).join("")}</ol></div>` : ""}
+    ${n.policy?.length ? `<div class="card"><h3>🏛️ 정책·정부 발표</h3><ul class="nws">${n.policy.map(item).join("")}</ul></div>` : ""}
+    ${(n.topics || []).filter((t) => t.items?.length).map((t) => `<div class="card"><h3>${esc(t.topic)}</h3><ul class="nws">${t.items.map(item).join("")}</ul></div>`).join("")}
+    ${n.watch?.length ? `<div class="card"><h3>📌 이번 주 체크</h3><ul>${n.watch.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+    <div class="note" style="padding:0 16px 12px">Claude가 공개된 기사·보도자료를 검색해 직접 요약했습니다. 정확한 내용은 원문 링크에서 확인하세요.</div>`;
 }
 
 // ---------- 순위 ----------
