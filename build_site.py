@@ -1,0 +1,217 @@
+"""
+웹앱용 데이터 만들기 — site/data/
+
+  site/data/complexes.json   단지 요약 (목록·지도·필터용, 앱 첫 화면에서 한 번 로딩)
+  site/data/c/{단지코드}.json  단지 상세 (평형별 매매·전세 월별 시세, 거래량, 주변 단지, 최근 거래)
+  site/data/supply.json      입주 예정 물량 (data/supply.csv가 있을 때)
+
+사용법: python build_site.py
+"""
+import csv
+import json
+import math
+import shutil
+import statistics
+from collections import defaultdict
+from datetime import date
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+OUT = ROOT / "site" / "data"
+PYEONG = 3.305785  # 1평 = 3.3058㎡
+NEIGHBOR_KM = 1.5  # 키맞추기 비교 반경
+
+
+def read_csv(path):
+    with open(path, encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
+def months_before(d, n):
+    y, m = d.year, d.month - n
+    while m <= 0:
+        y, m = y - 1, m + 12
+    return date(y, m, 1)
+
+
+def area_band(a):
+    """전용면적 → 평형대 (59, 84 등 대표 구간)"""
+    for lo, hi, name in [(0, 40, "40미만"), (40, 50, "40대"), (50, 66, "59"), (66, 76, "70대"),
+                         (76, 95, "84"), (95, 115, "100대"), (115, 140, "120대")]:
+        if lo <= a < hi:
+            return name
+    return "140이상"
+
+
+def median(xs):
+    return round(statistics.median(xs)) if xs else None
+
+
+def change(now, before):
+    return round((now / before - 1) * 100, 1) if now and before else None
+
+
+def km(a, b):
+    lat1, lon1, lat2, lon2 = map(math.radians, (*a, *b))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def load_trades():
+    out = []
+    for path in sorted((ROOT / "data" / "trades").glob("*.csv")):
+        for r in read_csv(path):
+            if r["해제여부"] == "O" or not r["단지코드"]:
+                continue
+            area, price = float(r["전용면적"]), int(r["거래금액"])
+            out.append({"code": r["단지코드"], "date": r["계약일"], "area": area, "band": area_band(area),
+                        "floor": int(r["층"] or 0), "price": price, "ppp": price / area * PYEONG})
+    return out
+
+
+def load_jeonse():
+    """전세만 (월세 0). 갱신계약은 5% 상한 때문에 시세보다 낮아서 제외 (계약구분이 없는 옛 자료는 포함)"""
+    out = []
+    for path in sorted((ROOT / "data" / "rent").glob("*.csv")):
+        for r in read_csv(path):
+            if r["월세"] not in ("0", "") or r.get("계약구분") == "갱신" or not r["단지코드"]:
+                continue
+            area, dep = float(r["전용면적"]), int(r["보증금"] or 0)
+            if dep <= 0:
+                continue
+            out.append({"code": r["단지코드"], "date": r["계약일"], "area": area, "band": area_band(area),
+                        "price": dep, "ppp": dep / area * PYEONG})
+    return out
+
+
+def main():
+    trades = load_trades()
+    if not trades:
+        raise SystemExit("❌ data/trades에 데이터가 없습니다.")
+    jeonse = load_jeonse()
+
+    last = date.fromisoformat(max(t["date"] for t in trades))
+    # 기준: 최근 12개월 vs 1년 전 같은 기간 vs 3년 전 같은 기간
+    w0 = months_before(last, 11).isoformat()
+    w1 = (months_before(last, 23).isoformat(), w0)
+    w3 = (months_before(last, 47).isoformat(), months_before(last, 35).isoformat())
+
+    by_code, j_by_code = defaultdict(list), defaultdict(list)
+    for t in trades:
+        by_code[t["code"]].append(t)
+    for t in jeonse:
+        j_by_code[t["code"]].append(t)
+
+    info = {r["단지코드"]: r for r in read_csv(ROOT / "data" / "complexes.csv")} \
+        if (ROOT / "data" / "complexes.csv").exists() else {}
+
+    shutil.rmtree(OUT, ignore_errors=True)
+    (OUT / "c").mkdir(parents=True)
+
+    summary, details = [], {}
+    for code, ts in by_code.items():
+        ci = info.get(code)
+        if not ci or not ci.get("위도"):
+            continue  # 좌표 없는 단지는 지도·목록에서 제외
+        js = j_by_code.get(code, [])
+        recent = [t for t in ts if t["date"] >= w0]
+        j_recent = [t for t in js if t["date"] >= w0]
+        p_now = median([t["ppp"] for t in recent])
+        p_1y = median([t["ppp"] for t in ts if w1[0] <= t["date"] < w1[1]])
+        p_3y = median([t["ppp"] for t in ts if w3[0] <= t["date"] < w3[1]])
+        jp_now = median([t["ppp"] for t in j_recent])
+        p84 = median([t["price"] for t in recent if t["band"] == "84"])
+        p59 = median([t["price"] for t in recent if t["band"] == "59"])
+        j84 = median([t["price"] for t in j_recent if t["band"] == "84"])
+        j59 = median([t["price"] for t in j_recent if t["band"] == "59"])
+        n_prev = sum(1 for t in ts if w1[0] <= t["date"] < w1[1])
+
+        def num(k):
+            v = ci.get(k)
+            return float(v) if v not in (None, "") else None
+
+        summary.append({
+            "c": code, "n": ci["아파트명"], "g": ci["구"], "d": ci["법정동"], "j": ci["지번"],
+            "la": round(float(ci["위도"]), 6), "lo": round(float(ci["경도"]), 6),
+            "y": int(ci["건축년도"]) if ci.get("건축년도") else None,
+            "h": int(num("세대수")) if num("세대수") else None,
+            "b": ci.get("건설사") or None,
+            "st": ci.get("최근접역") or None, "sd": int(num("역거리m")) if num("역거리m") is not None else None,
+            "sl": int(num("역세권노선수") or 0),
+            "bz": ci.get("업무지구최근접") or None, "bk": num("업무지구거리km"),
+            "es": ci.get("초등학교") or None, "em": int(num("초등학교m")) if num("초등학교m") is not None else None,
+            "ms": ci.get("중학교") or None, "mm": int(num("중학교m")) if num("중학교m") is not None else None,
+            "a5": int(num("학원수500m")) if num("학원수500m") is not None else None,
+            "a1": int(num("학원수1km")) if num("학원수1km") is not None else None,
+            "p": p_now, "p84": p84, "p59": p59, "j84": j84, "j59": j59,
+            "jr": round(jp_now / p_now * 100) if jp_now and p_now else None,     # 전세가율 %
+            "gap84": p84 - j84 if p84 and j84 else None,                          # 84㎡ 매매-전세
+            "r1": change(p_now, p_1y), "r3": change(p_now, p_3y),
+            "n12": len(recent), "vt": change(len(recent), n_prev),               # 거래량 1년 변화
+            "last": max(t["date"] for t in ts),
+        })
+
+        def monthly(rows, key):
+            m = defaultdict(lambda: defaultdict(list))
+            for t in rows:
+                m[t["band"]][t["date"][:7]].append(t[key])
+            return {band: [[mo, median(v), len(v)] for mo, v in sorted(ms.items())] for band, ms in m.items()}
+
+        vol = defaultdict(int)
+        pp = defaultdict(list)
+        for t in ts:
+            vol[t["date"][:7]] += 1
+            pp[t["date"][:7]].append(t["ppp"])
+        details[code] = {
+            "series": monthly(ts, "price"),                    # 평형별 월별 매매가 중앙값
+            "jseries": monthly(js, "price"),                   # 평형별 월별 전세가 중앙값
+            "pp": [[mo, median(v)] for mo, v in sorted(pp.items())],  # 월별 평당가 (단지 비교용)
+            "vol": sorted(vol.items()),                        # 월별 거래량
+            "trades": [[t["date"], round(t["area"], 1), t["floor"], t["price"]]
+                       for t in sorted(ts, key=lambda t: t["date"], reverse=True)[:30]],
+        }
+
+    # 키맞추기: 반경 1.5km 안 단지들과 평당가·3년 상승률 비교
+    priced = [s for s in summary if s["p"]]
+    for s in summary:
+        near = []
+        for o in priced:
+            if o is s or abs(o["la"] - s["la"]) > 0.02 or abs(o["lo"] - s["lo"]) > 0.025:
+                continue
+            dkm = km((s["la"], s["lo"]), (o["la"], o["lo"]))
+            if dkm <= NEIGHBOR_KM:
+                near.append((dkm, o))
+        near.sort(key=lambda x: x[0])
+        if s["p"] and len(near) >= 3:
+            s["kp"] = round((s["p"] / statistics.median(o["p"] for _, o in near) - 1) * 100, 1)  # 주변 대비 평당가 %
+            r3s = [o["r3"] for _, o in near if o["r3"] is not None]
+            s["kr"] = round(s["r3"] - statistics.median(r3s), 1) if s["r3"] is not None and len(r3s) >= 3 else None
+        else:
+            s["kp"] = s["kr"] = None
+        details[s["c"]]["near"] = [
+            {"c": o["c"], "n": o["n"], "km": round(dkm, 2), "y": o["y"], "h": o["h"], "p": o["p"],
+             "p84": o["p84"], "r3": o["r3"], "jr": o["jr"]}
+            for dkm, o in near[:10]
+        ]
+
+    for code, d in details.items():
+        (OUT / "c" / f"{code}.json").write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")),
+                                                encoding="utf-8")
+
+    meta = {"updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
+            "dataTo": last.isoformat(), "count": len(summary), "hasRent": bool(jeonse)}
+
+    supply_csv = ROOT / "data" / "supply.csv"
+    if supply_csv.exists():
+        sup = [r for r in read_csv(supply_csv) if r.get("입주예정월", "") >= date.today().strftime("%Y%m")]
+        (OUT / "supply.json").write_text(json.dumps(sup, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        meta["hasSupply"] = True
+
+    (OUT / "complexes.json").write_text(
+        json.dumps({"meta": meta, "items": summary}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"✅ 단지 {len(summary):,}개, 매매 {len(trades):,}건, 전세 {len(jeonse):,}건 "
+          f"({meta['dataFrom']} ~ {meta['dataTo']})")
+
+
+if __name__ == "__main__":
+    main()

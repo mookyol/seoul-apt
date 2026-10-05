@@ -1,3 +1,6 @@
 # API 키 파일 — 절대 GitHub에 올라가면 안 됨
 .env
 __pycache__/
+*.tmp
+# 웹앱용 데이터는 배포할 때 자동 생성
+site/data/

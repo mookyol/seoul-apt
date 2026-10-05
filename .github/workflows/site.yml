@@ -1,0 +1,45 @@
+# 웹앱 배포 — 수집이 끝날 때마다(그리고 코드가 바뀔 때마다) 데이터를 다시 계산해 GitHub Pages에 올림
+name: 웹앱 배포
+
+on:
+  workflow_run:
+    workflows: ["실거래가 수집"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths: ["site/**", "build_site.py", "data/complexes.csv"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main   # 수집 직후 실행될 때도 방금 저장된 최신 데이터 사용
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 웹앱용 데이터 계산
+        run: python build_site.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

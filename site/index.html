@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="서울입지">
+<title>서울 아파트 입지</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand-row"><div class="brand">서울 아파트 입지</div><button id="auth-btn" class="auth-btn">로그인</button></div>
+  <input id="q" type="search" placeholder="단지명 · 동 · 역 검색" autocomplete="off">
+</header>
+
+<main>
+  <section id="tab-map" class="tab active">
+    <div id="map"></div>
+    <div class="map-ctl">
+      <select id="m-color">
+        <option value="r1">색: 1년 상승률</option>
+        <option value="r3">색: 3년 상승률</option>
+        <option value="jr">색: 전세가율</option>
+        <option value="kp">색: 주변 대비 가격</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="m-supply"> 입주예정</label>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section id="tab-list" class="tab">
+    <div class="filters">
+      <select id="f-gu"><option value="">서울 전체</option></select>
+      <select id="f-sort">
+        <optgroup label="상승력">
+          <option value="r1">1년 상승률 높은 순</option>
+          <option value="r3">3년 상승률 높은 순</option>
+        </optgroup>
+        <optgroup label="키맞추기">
+          <option value="kp">주변보다 싼 순</option>
+          <option value="kr">주변보다 덜 오른 순</option>
+        </optgroup>
+        <optgroup label="수요·유동성">
+          <option value="jr">전세가율 높은 순</option>
+          <option value="n12">거래 많은 순</option>
+          <option value="vt">거래 늘어난 순</option>
+        </optgroup>
+        <optgroup label="입지">
+          <option value="sd">역 가까운 순</option>
+          <option value="bk">업무지구 가까운 순</option>
+          <option value="em">초등학교 가까운 순</option>
+          <option value="a1">학원 많은 순</option>
+        </optgroup>
+        <optgroup label="지인">
+          <option value="rm">리마크 많은 순</option>
+        </optgroup>
+        <optgroup label="가격">
+          <option value="pAsc">평당가 낮은 순</option>
+          <option value="pDesc">평당가 높은 순</option>
+        </optgroup>
+      </select>
+      <button id="f-more" class="chip">필터 ▾</button>
+    </div>
+    <div class="filters more" id="more" hidden>
+      <label>84㎡ 예산 <select id="f-budget">
+        <option value="">제한 없음</option><option>6</option><option>8</option><option>10</option>
+        <option>12</option><option>15</option><option>20</option><option>25</option><option>30</option>
+      </select> 억 이하</label>
+      <label>세대수 <select id="f-hh">
+        <option value="">전체</option><option>300</option><option>500</option><option>1000</option><option>2000</option>
+      </select> 이상</label>
+      <label>역까지 <select id="f-sd">
+        <option value="">전체</option><option>300</option><option>500</option><option>1000</option>
+      </select> m 이내</label>
+      <label>초등학교 <select id="f-es">
+        <option value="">전체</option><option value="300">300m 이내 (초품아)</option><option value="500">500m 이내</option>
+      </select></label>
+      <label>연식 <select id="f-age">
+        <option value="">전체</option><option value="10">10년 이내</option><option value="20">20년 이내</option>
+        <option value="-30">30년 이상(재건축 후보)</option>
+      </select></label>
+      <label>최근 1년 거래 <select id="f-n">
+        <option value="">전체</option><option>3</option><option>5</option><option>10</option>
+      </select> 건 이상</label>
+    </div>
+    <div class="count" id="count"></div>
+    <ol class="list" id="list"></ol>
+  </section>
+
+  <section id="tab-supply" class="tab">
+    <div class="count">🏗️ 입주 예정 물량 <small>(청약홈 일반분양 기준 · 조합원 물량 제외)</small></div>
+    <div id="supply"></div>
+  </section>
+
+  <section id="tab-fav" class="tab">
+    <div class="count">⭐ 관심단지 <small id="fav-note"></small></div>
+    <ol class="list" id="fav"></ol>
+    <div id="feed"></div>
+  </section>
+</main>
+
+<button class="cmp-bar" id="cmp-bar" hidden></button>
+
+<nav class="tabs">
+  <button data-tab="map" class="active"><span>🗺️</span>지도</button>
+  <button data-tab="list"><span>📋</span>순위</button>
+  <button data-tab="supply"><span>🏗️</span>공급</button>
+  <button data-tab="fav"><span>⭐</span>관심</button>
+</nav>
+
+<div class="sheet-bg" id="sheet-bg" hidden></div>
+<article class="sheet" id="sheet" hidden></article>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="cloud.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

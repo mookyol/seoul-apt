@@ -2,7 +2,7 @@
 
 국토교통부 아파트 매매 실거래가(공공데이터포털)를 매일 자동 수집해 투자 입지를 분석하는 개인 프로젝트입니다.
 
-- `collect_trades.py` — 실거래가 수집기 (`data/trades/YYYYMM.csv`, 계약월별 1파일)
+- `collect.py` — 실거래 수집기 (매매 `data/trades/`, 전월세 `data/rent/`, 계약월별 1파일)
 - `.github/workflows/collect.yml` — 매일 새벽 3시(KST) 최근 3개월 자동 갱신
 
 데이터 출처: 국토교통부 실거래가 공개시스템 / 공공데이터포털. 본 자료는 투자 권유가 아닙니다.
