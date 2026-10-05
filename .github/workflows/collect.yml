@@ -37,6 +37,8 @@ jobs:
     timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main   # 대기열에서 기다린 경우에도 앞선 실행이 저장한 최신 데이터 위에서 시작 (충돌 방지)
 
       - uses: actions/setup-python@v5
         with:
