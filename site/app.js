@@ -389,7 +389,7 @@ function filtered() {
         dg = $("#f-dg").value;
   // 띄어쓴 단어가 모두 들어 있으면 일치 (예: "천호동 528", "천호 삼성", "잠실 엘스")
   const words = q.split(/\s+/).filter(Boolean);
-  const hay = (i) => (i._hay ??= [i.n, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
+  const hay = (i) => (i._hay ??= [i.n, i.al, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
   const xs = state.items.filter((i) =>
     (!words.length || words.every((w) => hay(i).includes(w))) &&
     (!gu || i.g === gu) &&
@@ -498,7 +498,8 @@ async function renderDetail(code) {
 
   openSheet(`
     <div class="sh-head">
-      <div style="flex:1"><h2>${esc(i.n)}</h2><div class="addr">${esc(i.g)} ${esc(i.d)} ${esc(i.j)}${i.b ? " · " + esc(i.b) : ""}</div></div>
+      <div style="flex:1"><h2>${esc(i.n)}</h2><div class="addr">${esc(i.g)} ${esc(i.d)} ${esc(i.j)}${i.b ? " · " + esc(i.b) : ""}</div>
+        ${i.al && i.al !== i.n ? `<div class="note">다른 이름: ${esc(i.al)}</div>` : ""}</div>
       <button class="icon-btn ${isFav(code) ? "on" : ""}" id="fav-btn" aria-label="관심단지">${isFav(code) ? "★" : "☆"}</button>
       <button class="icon-btn" data-close aria-label="닫기">✕</button>
     </div>

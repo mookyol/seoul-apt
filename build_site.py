@@ -10,6 +10,7 @@
 import csv
 import json
 import math
+import re
 import shutil
 import statistics
 from collections import defaultdict
@@ -55,6 +56,18 @@ def km(a, b):
     lat1, lon1, lat2, lon2 = map(math.radians, (*a, *b))
     h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
     return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def display_name(name, dong, kapt):
+    """실거래 신고명("미륭", "현대")은 너무 짧아 구분이 안 됨 → 흔히 부르는 이름("월계미륭", "무악현대")으로"""
+    name = (name or "").strip()
+    if len(name) > 4:
+        return name
+    k = re.sub(r"\(.*?\)|아파트$", "", kapt or "").strip()
+    if k and name and name in k and len(k) <= 12:
+        return k
+    stem = re.sub(r"(본동|\d*동(\d+가)?|\d+가)$", "", dong or "")   # 월계동→월계, 금호동3가→금호, 용산동2가→용산
+    return stem + name if stem and not name.startswith(stem) else name
 
 
 def value_fields(v):
@@ -225,7 +238,9 @@ def main():
             return float(v) if v not in (None, "") else None
 
         summary.append({
-            "c": code, "n": ci["아파트명"], "g": ci["구"], "d": ci["법정동"], "j": ci["지번"],
+            "c": code, "n": display_name(ci["아파트명"], ci["법정동"], ci.get("kapt단지명")),
+            "al": " ".join(x for x in {ci["아파트명"], ci.get("kapt단지명") or ""} if x),   # 검색용 다른 이름
+            "g": ci["구"], "d": ci["법정동"], "j": ci["지번"],
             "la": round(float(ci["위도"]), 6) if ci.get("위도") else None,
             "lo": round(float(ci["경도"]), 6) if ci.get("경도") else None,
             "y": int(ci["건축년도"]) if ci.get("건축년도") else None,
