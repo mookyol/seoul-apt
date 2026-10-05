@@ -158,6 +158,9 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .timeline li.past { color: var(--sub); border-color: var(--line); }
 .timeline li.past::before { background: var(--line); }
 .timeline li.now::before { background: var(--up); box-shadow: 0 0 0 3px #fecaca; }
+.grade { display: inline-block; min-width: 24px; text-align: center; border-radius: 6px; color: #fff; font-weight: 800; padding: 0 6px; }
+.gA { background: #047857; } .gB { background: #10b981; } .gC { background: #f59e0b; } .gD { background: #ef4444; }
+.kv td { text-align: left; } .kv td:last-child { text-align: right; }
 .sup-gu { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; }
 .sup-gu span { background: var(--card); border-radius: 8px; padding: 4px 8px; font-size: 13px; }
 .sup-year { padding: 12px 16px 4px; font-weight: 700; }

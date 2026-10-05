@@ -146,7 +146,7 @@ async function init() {
 }
 
 function saveFilters() {
-  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n"];
+  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg"];
   store.set("filters", Object.fromEntries(ids.map((id) => [id, $(id).value])));
 }
 
@@ -192,6 +192,8 @@ const COLOR_MODES = {
   r3: { label: "3년 상승률", stops: [[30, "#b91c1c", "30%+"], [15, "#ef4444", "15%+"], [0, "#fca5a5", "0%+"], [-10, "#93c5fd", "-10%"], [-1e9, "#2563eb", "더 하락"]] },
   jr: { label: "전세가율", stops: [[65, "#b91c1c", "65%+"], [55, "#ef4444", "55%+"], [45, "#fca5a5", "45%+"], [35, "#93c5fd", "35%+"], [-1e9, "#2563eb", "35%미만"]] },
   kp: { label: "주변 대비 가격", stops: [[15, "#2563eb", "15%+ 비쌈"], [5, "#93c5fd", "5%+"], [-5, "#d1d5db", "비슷"], [-15, "#fca5a5", "5%+ 쌈"], [-1e9, "#b91c1c", "15%+ 쌈"]] },
+  df: { label: "하락 방어력", stops: [[75, "#047857", "A"], [50, "#34d399", "B"], [25, "#fbbf24", "C"], [-1e9, "#ef4444", "D"]] },
+  ac: { label: "출근 접근성", stops: [[80, "#b91c1c", "80+"], [60, "#ef4444", "60+"], [40, "#fca5a5", "40+"], [20, "#93c5fd", "20+"], [-1e9, "#2563eb", "20미만"]] },
 };
 function colorOf(mode, v) {
   if (v == null) return "#9ca3af";
@@ -383,7 +385,8 @@ async function renderSub(key) {
 function filtered() {
   const q = $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
-        sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value;
+        sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value,
+        dg = $("#f-dg").value;
   // 띄어쓴 단어가 모두 들어 있으면 일치 (예: "천호동 528", "천호 삼성", "잠실 엘스")
   const words = q.split(/\s+/).filter(Boolean);
   const hay = (i) => (i._hay ??= [i.n, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
@@ -395,12 +398,14 @@ function filtered() {
     (!sd || (i.sd != null && i.sd <= sd)) &&
     (!es || (i.em != null && i.em <= es)) &&
     (!age || (age > 0 ? i.y && thisYear - i.y <= age : i.y && thisYear - i.y >= -age)) &&
-    (!n || i.n12 >= n));
+    (!n || i.n12 >= n) &&
+    (!dg || (i.dg && dg.includes(i.dg))));
   const hi = (k) => (i) => -(i[k] ?? -1e9), lo = (k) => (i) => i[k] ?? 1e9;
   const key = {
     ls: hi("ls"), r1: hi("r1"), r3: hi("r3"), kp: lo("kp"), kr: lo("kr"), jr: hi("jr"), n12: hi("n12"), vt: hi("vt"),
     sd: lo("sd"), bk: lo("bk"), em: lo("em"), a1: hi("a1"), pAsc: lo("p"), pDesc: hi("p"),
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
+    df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
   }[$("#f-sort").value];
   return xs.sort((a, b) => key(a) - key(b));
 }
@@ -410,6 +415,8 @@ function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수�
     r3: [`3년 ${pct(i.r3)}`, cls(i.r3)], kp: [`주변대비 ${pct(i.kp)}`, cls(-i.kp)], kr: [`주변대비 ${pctp(i.kr)}`, cls(i.kr)],
     jr: [`전세가율 ${i.jr ?? "–"}%`, ""], vt: [`거래 ${pct(i.vt)}`, cls(i.vt)],
     em: [`초 ${dist(i.em)}`, ""], a1: [`학원 ${i.a1 ?? "–"}`, ""],
+    df: [`방어 ${i.dg ?? "–"} (${i.df ?? "–"})`, ""], dd: [`'22 낙폭 ${i.dd != null ? "-" + i.dd + "%" : "–"}${i.de ? " 추정" : ""}`, "down"],
+    ac: [`출근 ${i.ac ?? "–"}`, ""],
   }[s] || [`1년 ${pct(i.r1)}`, cls(i.r1)];
 }
 function remarkBadge(code) {
@@ -521,6 +528,18 @@ async function renderDetail(code) {
       <div class="bands" id="bands"></div><div class="chart-box"><canvas id="chart"></canvas></div></div>
     <div class="card"><h3>🔑 키맞추기 <span class="note">주변 1.5km 단지</span></h3>
       <div class="kmsg">${kmsg}</div><table class="near" id="near"><tr><td>불러오는 중…</td></tr></table></div>
+    ${i.dg ? `<div class="card"><h3>🛡️ 하락 방어력 <span class="grade g${i.dg}">${i.dg}</span> <span class="note">${i.df}점 / 100${i.th ? " · 표본 적음" : ""}</span></h3>
+      <table class="kv">
+        <tr><td>2022 하락기 낙폭</td><td><b class="down">${i.dd != null ? "-" + i.dd + "%" : "–"}</b>${i.de ? ' <span class="note">(같은 구·연식대 평균으로 추정)</span>' : ""}</td></tr>
+        <tr><td>지역 베타 <span class="note">1보다 크면 구 평균보다 출렁임</span></td><td>${i.bt ?? "–"}</td></tr>
+        <tr><td>전세가율 (최근 6개월)</td><td>${i.jr2 != null ? i.jr2 + "%" : "–"}${i.jw ? ' <span class="badge">80%↑ 깡통전세 주의</span>' : ""}</td></tr>
+        <tr><td>${esc(i.g)} 2년 내 입주물량</td><td>${i.su != null ? "구 세대의 " + i.su + "%" : "–"}</td></tr>
+        <tr><td>거래회전율 (1년 거래÷세대)</td><td>${i.to != null ? i.to + "%" : "–"}</td></tr>
+      </table>
+      <div class="note">구성: 낙폭 35% · 베타 15% · 전세가율 20% · 입주물량 15% · 회전율 15% (서울 내 백분위). 가중치는 백테스트로 조정 예정.</div></div>` : ""}
+    ${i.vp ? `<div class="card"><h3>🧹 보정 시세 <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
+      <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
+      ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
     <div class="card"><h3>🚇 교통</h3>
       <div>${esc(i.st ?? "–")} <b>${dist(i.sd)}</b>${i.sl > 1 ? ` · 500m 안 ${i.sl}개 노선` : ""}</div>
       <div class="note">${esc(i.bz ?? "")} 업무지구 직선거리 ${i.bk ?? "–"}km</div></div>
@@ -705,7 +724,8 @@ async function renderCompare() {
     ["3년", (i) => `<span class="${cls(i.r3)}">${pct(i.r3)}</span>`], ["주변대비", (i) => pct(i.kp)],
     ["준공", (i) => i.y ?? "–"], ["세대수", (i) => i.h?.toLocaleString() ?? "–"],
     ["역", (i) => `${esc(i.st ?? "–")}<br>${dist(i.sd)}`], ["초등학교", (i) => dist(i.em)], ["학원(1km)", (i) => i.a1 ?? "–"],
-    ["거래(1년)", (i) => i.n12],
+    ["거래(1년)", (i) => i.n12], ["하락 방어력", (i) => i.dg ? `${i.dg} (${i.df})` : "–"],
+    ["'22 낙폭", (i) => i.dd != null ? `-${i.dd}%${i.de ? "*" : ""}` : "–"], ["출근 접근성", (i) => i.ac ?? "–"],
   ];
   openSheet(`
     <div class="sh-head"><h2 style="flex:1">📊 단지 비교</h2>

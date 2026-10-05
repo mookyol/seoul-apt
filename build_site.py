@@ -57,6 +57,21 @@ def km(a, b):
     return 6371 * 2 * math.asin(math.sqrt(h))
 
 
+def value_fields(v):
+    """value_model.py 결과 → 웹용 짧은 키"""
+    if not v:
+        return {}
+    f = lambda k: float(v[k]) if v.get(k) not in (None, "", "nan") else None
+    return {
+        "vp": f("보정평당가"), "cf": v.get("시세신뢰도") or None,            # 정제·보정 평당가, 신뢰도
+        "ac": f("접근성"),                                                  # 출근 접근성(임시) 0~100
+        "dd": f("낙폭2022"), "de": v.get("낙폭추정") == "True",             # 2022 하락기 낙폭 %, 추정 여부
+        "bt": f("지역베타"), "jr2": f("전세가율"), "su": f("구입주물량비율"), "to": f("거래회전율"),
+        "df": f("방어력"), "dg": v.get("방어등급") if v.get("방어등급") not in ("", "nan") else None,
+        "jw": v.get("전세경고") == "True", "th": v.get("표본적음") == "True",
+    }
+
+
 def load_trades():
     out = []
     for path in sorted((ROOT / "data" / "trades").glob("*.csv")):
@@ -174,6 +189,8 @@ def main():
 
     info = {r["단지코드"]: r for r in read_csv(ROOT / "data" / "complexes.csv")} \
         if (ROOT / "data" / "complexes.csv").exists() else {}
+    vpath = ROOT / "data" / "model" / "complex_value.csv"     # value_model.py 결과 (정제 시세·방어력·접근성)
+    value = {r["단지코드"]: r for r in read_csv(vpath)} if vpath.exists() else {}
 
     shutil.rmtree(OUT, ignore_errors=True)
     (OUT / "c").mkdir(parents=True)
@@ -229,6 +246,7 @@ def main():
             "r1": change(p_now, p_1y), "r3": change(p_now, p_3y),
             "n12": len(recent), "vt": change(len(recent), n_prev),               # 거래량 1년 변화
             "last": max(t["date"] for t in ts),
+            **value_fields(value.get(code)),
         })
 
         def monthly(rows, key):

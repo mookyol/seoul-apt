@@ -7,7 +7,7 @@ on:
     types: [completed]
   push:
     branches: [main]
-    paths: ["site/**", "build_site.py", "data/complexes.csv"]
+    paths: ["site/**", "build_site.py", "value_model.py", "data/complexes.csv"]
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - run: pip install pandas numpy
+
+      - name: 가치 모델 (정제 시세 · 하락 방어력 · 접근성)
+        run: python value_model.py
 
       - name: 웹앱용 데이터 계산
         run: python build_site.py

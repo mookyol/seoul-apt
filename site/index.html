@@ -29,6 +29,8 @@
         <option value="r3">색: 3년 상승률</option>
         <option value="jr">색: 전세가율</option>
         <option value="kp">색: 주변 대비 가격</option>
+        <option value="df">색: 하락 방어력</option>
+        <option value="ac">색: 출근 접근성</option>
       </select>
       <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정</label>
     </div>
@@ -47,6 +49,10 @@
           <option value="kp">주변보다 싼 순</option>
           <option value="kr">주변보다 덜 오른 순</option>
         </optgroup>
+        <optgroup label="안정성">
+          <option value="df">하락 방어력 높은 순</option>
+          <option value="dd">2022 하락기 덜 빠진 순</option>
+        </optgroup>
         <optgroup label="수요·유동성">
           <option value="jr">전세가율 높은 순</option>
           <option value="n12">거래 많은 순</option>
@@ -54,6 +60,7 @@
         </optgroup>
         <optgroup label="입지">
           <option value="sd">역 가까운 순</option>
+          <option value="ac">출근 접근성 높은 순</option>
           <option value="bk">업무지구 가까운 순</option>
           <option value="em">초등학교 가까운 순</option>
           <option value="a1">학원 많은 순</option>
@@ -85,6 +92,9 @@
       <label>연식 <select id="f-age">
         <option value="">전체</option><option value="10">10년 이내</option><option value="20">20년 이내</option>
         <option value="-30">30년 이상(재건축 후보)</option>
+      </select></label>
+      <label>하락 방어력 <select id="f-dg">
+        <option value="">전체</option><option value="A">A등급만</option><option value="AB">B등급 이상</option>
       </select></label>
       <label>최근 1년 거래 <select id="f-n">
         <option value="">전체</option><option>3</option><option>5</option><option>10</option>
