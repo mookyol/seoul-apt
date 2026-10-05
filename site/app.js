@@ -190,7 +190,7 @@ function showTab(name) {
 function buildWeightPanel() {
   $("#more").insertAdjacentHTML("beforebegin", `
     <div class="wpanel">
-      <div class="wtitle">📍 입지점수 비중 <span class="note">— 출근 · 규모 · 학군(초중고+학원) · 역</span></div>
+      <div class="wtitle">📍 입지점수 비중${guideLink("ls")} <span class="note">— 출근 · 규모 · 학군(초중고+학원) · 역</span></div>
       <div class="presets">${Object.keys(PRESETS).map((p) => `<button class="chip" data-p="${p}">${p === "데이터 추천형" ? "⭐ " : ""}${p}</button>`).join("")}</div>
       <div class="note" style="margin-bottom:4px">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승과 관련이 컸던 순서대로 비중 (<a href="#score">성적표</a>)</div>
       ${[["a", "🏙️ 출근 접근성"], ["h", "🏢 단지 규모"], ["e", "🎒 학군"], ["s", "🚇 역세권"]].map(([k, l]) =>
@@ -385,7 +385,7 @@ async function renderSub(key) {
       <div class="stat"><small>입주 예정</small><b>${ym(s.mv)}</b></div>
     </div>
     ${s.reg.length ? `<div class="note" style="margin:-4px 0 10px">규제: ${s.reg.join(" · ")} — 전매제한·실거주의무는 모집공고문에서 꼭 확인하세요</div>` : ""}
-    <div class="card"><h3>💰 분양가 vs 주변 시세</h3>
+    <div class="card"><h3>💰 분양가 vs 주변 시세${guideLink("subs")}</h3>
       ${s.mg == null ? `<div class="note">주변 1km 안에 비교할 거래가 부족합니다</div>` : `
       <div class="kmsg">주변 1km ${s.nnew ? "<b>10년 이내 신축</b>" : "단지"} ${s.nn}곳 평당 시세 <b>${won(s.nppp)}</b>
         vs 분양 평당가 <b>${won(s.sppp)}</b> → <b class="${cls(s.mg)}">${s.mg > 0 ? "시세가 " + pct(s.mg) + " 높음 (차익 기대)" : "분양가가 시세보다 높음"}</b></div>
@@ -500,6 +500,7 @@ function route() {
   else if (location.hash === "#cmp" && cmps().length) renderCompare();
   else if (location.hash === "#join") renderJoin();
   else if (location.hash === "#score") renderScorecard();
+  else if (location.hash.startsWith("#guide")) renderGuide(location.hash.split("-")[1]);
   else closeSheet();
 }
 function closeSheet() {
@@ -541,7 +542,7 @@ async function renderDetail(code) {
       <a href="${roadUrl}" target="_blank" rel="noopener">👀 로드뷰</a>
       <a href="${kakaoUrl}" target="_blank" rel="noopener">🗺️ 카카오맵</a>
     </div>
-    <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small></h3>${i.la ? scoreBars(i)
+    <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small>${guideLink("ls")}</h3>${i.la ? scoreBars(i)
       : `<div class="note">이 단지의 위치·세대수·학군 정보를 수집 중입니다. 매일 새벽 자동 수집으로 곧 채워집니다.</div>`}</div>
     <div class="stats">
       <div class="stat"><small>84㎡ 매매</small><b>${won(i.p84)}</b></div>
@@ -559,9 +560,9 @@ async function renderDetail(code) {
     </div>
     <div class="card"><h3>시세 · 거래량 <span class="note">월별 중앙값 · 막대=거래건수</span></h3>
       <div class="bands" id="bands"></div><div class="chart-box"><canvas id="chart"></canvas></div></div>
-    <div class="card"><h3>🔑 키맞추기 <span class="note">주변 1.5km 단지</span></h3>
+    <div class="card"><h3>🔑 키맞추기${guideLink("keymatch")} <span class="note">주변 1.5km 단지</span></h3>
       <div class="kmsg">${kmsg}</div><table class="near" id="near"><tr><td>불러오는 중…</td></tr></table></div>
-    ${i.dg ? `<div class="card"><h3>🛡️ 하락 방어력 <span class="grade g${i.dg}">${i.dg}</span> <span class="note">${i.df}점 / 100${i.th ? " · 표본 적음" : ""}</span></h3>
+    ${i.dg ? `<div class="card"><h3>🛡️ 하락 방어력${guideLink("defense")} <span class="grade g${i.dg}">${i.dg}</span> <span class="note">${i.df}점 / 100${i.th ? " · 표본 적음" : ""}</span></h3>
       <table class="kv">
         <tr><td>2022 하락기 낙폭</td><td><b class="down">${i.dd != null ? "-" + i.dd + "%" : "–"}</b>${i.de ? ' <span class="note">(같은 구·연식대 평균으로 추정)</span>' : ""}</td></tr>
         <tr><td>지역 베타 <span class="note">1보다 크면 구 평균보다 출렁임</span></td><td>${i.bt ?? "–"}</td></tr>
@@ -570,19 +571,19 @@ async function renderDetail(code) {
         <tr><td>거래회전율 (1년 거래÷세대)</td><td>${i.to != null ? i.to + "%" : "–"}</td></tr>
       </table>
       <div class="note">구성: 낙폭 35% · 베타 15% · 전세가율 20% · 입주물량 15% · 회전율 15% (서울 내 백분위). 가중치는 백테스트로 조정 예정.</div></div>` : ""}
-    ${i.fv ? `<div class="card"><h3>⚖️ 모델 적정가 <span class="note">위치·연식·규모·브랜드·역·학군으로 학습 (이 동네는 빼고 예측)</span></h3>
+    ${i.fv ? `<div class="card"><h3>⚖️ 모델 적정가${guideLink("fair")} <span class="note">위치·연식·규모·브랜드·역·학군으로 학습 (이 동네는 빼고 예측)</span></h3>
       <div class="kmsg">모델 적정가 평당 <b>${won(Math.round(i.fv))}</b> vs 보정 시세 <b>${won(Math.round(i.vp))}</b>
         → <b class="${cls(i.gp)}">${i.gp > 0 ? "모델보다 " + i.gp + "% 비쌈" : "모델보다 " + Math.abs(i.gp) + "% 쌈"}</b></div>
       ${i.rs ? `<div>가격을 만드는 요인: ${i.rs.map((r) => `<span class="tag">${esc(r)}</span>`).join(" ")}</div>` : ""}
       <div class="note" style="margin-top:6px">⚠️ 백테스트 결과 '모델보다 싼 단지'가 이후 더 오르지는 않았습니다 (모델이 못 보는 약점 때문에 싼 경우가 많음).
         매수 신호가 아니라 <b>가격 수준 참고용</b>입니다. <a href="#score">점수 성적표 보기</a></div></div>` : ""}
-    ${i.vp ? `<div class="card"><h3>🧹 보정 시세 <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
+    ${i.vp ? `<div class="card"><h3>🧹 보정 시세${guideLink("price")} <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
       <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
       ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
     <div class="card"><h3>🚇 교통</h3>
       <div>${esc(i.st ?? "–")} <b>${dist(i.sd)}</b>${i.sl > 1 ? ` · 500m 안 ${i.sl}개 노선` : ""}</div>
       <div class="note">${esc(i.bz ?? "")} 업무지구 직선거리 ${i.bk ?? "–"}km</div></div>
-    <div class="card"><h3>🎒 학군 <b class="lsc">${i.sE ?? "–"}</b><small>점</small>
+    <div class="card"><h3>🎒 학군 <b class="lsc">${i.sE ?? "–"}</b><small>점</small>${guideLink("edu")}
       ${eduTags(i).map((t) => `<span class="tag">${t}</span>`).join(" ")}</h3>
       ${i.es == null && i.a1 == null ? `<div class="note">학군 정보를 수집 중입니다 (곧 자동으로 채워집니다)</div>` : `
       <table class="kv">${(() => { const p = eduParts(i); return [
@@ -752,6 +753,94 @@ function renderJoin() {
     catch (e) { $("#j-msg").textContent = "❌ " + e.message; }
   };
 }
+
+// ---------- 점수 가이드 ----------
+const GUIDE = [
+  ["data", "📦 데이터는 어디서 오나", `
+    <ul>
+      <li><b>매매·전월세 실거래가</b>: 국토교통부 (2016년~, 매일 새벽 3시 최근 3개월 다시 받음 — 늦은 신고·취소 반영)</li>
+      <li><b>단지 정보</b>: 공동주택관리정보시스템(K-apt) 세대수·사용승인일·건설사</li>
+      <li><b>위치·역·학교·학원</b>: 카카오 지도 검색 (역·학교 거리는 <b>직선거리</b>)</li>
+      <li><b>청약</b>: 한국부동산원 청약홈 (공고·일정·분양가·경쟁률·당첨가점)</li>
+    </ul>
+    <div class="note">실거래는 계약 후 30일 안에 신고되므로 <b>최근 한 달은 계속 채워지는 중</b>입니다.</div>`],
+  ["ls", "📍 입지점수 (0~100점)", `
+    <div>네 가지 점수를 <b>비중</b>대로 평균합니다. 비중은 순위 탭에서 직접 바꾸거나 프리셋을 고를 수 있습니다.</div>
+    <table class="kv"><tr><th>프리셋</th><th>출근</th><th>규모</th><th>학군</th><th>역</th></tr>
+      ${Object.entries(PRESETS).map(([k, w]) => `<tr><td>${k === "데이터 추천형" ? "⭐ " : ""}${k}</td><td>${w.a}</td><td>${w.h}</td><td>${w.e}</td><td>${w.s}</td></tr>`).join("")}</table>
+    <div class="note">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승률과 관련이 컸던 순서(업무지구 > 규모 ≈ 학군 > 역)대로 정한 비중.
+      위치 정보가 아직 없는 단지는 점수를 보류합니다.</div>`],
+  ["ac", "🏙️ 출근 접근성", `
+    <div>업무지구 7곳까지의 거리를 <b>일자리 규모로 가중</b>해 합산한 뒤(중력모형), 서울 단지 중 <b>백분위</b>로 바꿉니다.</div>
+    <div class="note">업무지구: 광화문·종로(1.0) · 강남(1.0) · 여의도(0.6) · 판교(0.45) · 가산·구로(0.35) · 마곡(0.25) · 성수(0.25)<br>
+      거리가 멀어질수록 영향이 줄어드는 정도(β)는 시세와 가장 잘 맞도록 자동 보정합니다.
+      <b>임시판</b>: 실제 대중교통 출근시간이 아닌 직선거리 기반이며, 추후 실제 통행시간으로 교체 예정입니다.</div>`],
+  ["size", "🏢 단지 규모", `
+    <table class="kv"><tr><td>2,000세대 이상</td><td>100</td></tr><tr><td>1,000~1,999</td><td>80</td></tr><tr><td>500~999</td><td>60</td></tr>
+      <tr><td>300~499</td><td>40</td></tr><tr><td>300 미만 · 세대수 정보 없음</td><td>20</td></tr></table>
+    <div class="note">세대수 정보가 없는 단지는 대부분 K-apt 미등록 소규모 단지라 20점으로 봅니다.</div>`],
+  ["edu", "🎒 학군 (초·중·고 + 학원가)", `
+    <table class="kv"><tr><th>항목</th><th>비중</th><th>100점</th><th>75점</th><th>50점</th><th>25점</th></tr>
+      <tr><td>초등학교</td><td>35%</td><td>≤300m</td><td>≤500m</td><td>≤800m</td><td>그 이상</td></tr>
+      <tr><td>중학교</td><td>20%</td><td>≤500m</td><td>≤800m</td><td>≤1.2km</td><td>그 이상</td></tr>
+      <tr><td>고등학교</td><td>15%</td><td>≤700m</td><td>≤1km</td><td>≤1.5km</td><td>그 이상</td></tr></table>
+    <div>학원가(30%): 1km 안 학원 수가 서울 단지 중 상위 몇 %인지(백분위)를 점수로 씁니다.</div>
+    <div class="note">태그: <b>초품아</b>(초등학교 300m 이내) · <b>대치/목동/중계 학원가</b> · <b>학원 밀집 상위 5%/15%</b>.
+      학교별 학업성취도는 2017년 이후 비공개라 학원가 밀도를 학군 대리지표로 씁니다. 거리는 직선거리입니다.</div>`],
+  ["st", "🚇 역세권", `
+    <table class="kv"><tr><td>≤300m</td><td>100</td></tr><tr><td>≤500m</td><td>80</td></tr><tr><td>≤800m</td><td>60</td></tr>
+      <tr><td>≤1km</td><td>45</td></tr><tr><td>≤1.5km</td><td>25</td></tr><tr><td>그 이상</td><td>10</td></tr></table>
+    <div class="note">환승 보너스: 500m 안에 노선이 하나 더 있을 때마다 +10점 (최대 100).</div>`],
+  ["price", "🧹 보정 시세 · 상승률", `
+    <ol>
+      <li><b>정제</b>: 취소(해제)된 거래와 직거래(가족 간 저가 거래 등) 제외</li>
+      <li><b>층 보정</b>: 저층(3층 이하·하위 20%)·고층(상위 20%) 거래를 구별 계수로 중층 기준 가격으로 환산</li>
+      <li><b>이상치 제거</b>: 같은 단지·면적·분기 안에서 너무 튀는 거래(로버스트 Z 3 초과) 제외</li>
+      <li><b>보정</b>: 최근 6개월 거래가 적으면 같은 동·비슷한 연식 시세 쪽으로 당겨 안정화 (거래 n건 : 기준값 5건 비율)</li>
+    </ol>
+    <div>신뢰도: 최근 6개월 거래 <b>10건 이상 높음</b> · 3~9건 보통 · 2건 이하 낮음</div>
+    <div class="note">목록의 1년·3년 상승률은 최근 12개월 평당가 중앙값을 1년 전·3년 전 같은 기간과 비교한 값입니다.</div>`],
+  ["defense", "🛡️ 하락 방어력 (A~D)", `
+    <table class="kv"><tr><th>요소</th><th>비중</th><th>위험한 쪽</th></tr>
+      <tr><td>2022 하락기 낙폭 (2021.1~22.6 고점 → 22.7~23.12 저점)</td><td>35%</td><td>클수록</td></tr>
+      <tr><td>지역 베타 (구 시세보다 얼마나 출렁이나)</td><td>15%</td><td>클수록</td></tr>
+      <tr><td>전세가율 (최근 6개월)</td><td>20%</td><td>낮을수록</td></tr>
+      <tr><td>구 2년 내 입주물량 ÷ 구 세대수</td><td>15%</td><td>클수록</td></tr>
+      <tr><td>거래회전율 (1년 거래 ÷ 세대수)</td><td>15%</td><td>낮을수록</td></tr></table>
+    <div>각 요소를 서울 내 백분위로 바꿔 합친 뒤 0~100점(높을수록 방어력 강함), <b>4등분해 A~D</b>로 나눕니다.</div>
+    <div class="note">2022년 이후 준공 등 낙폭 자료가 없거나 고점·저점 거래가 2건 미만이면 같은 구·연식대 평균으로 추정합니다.
+      2021~23년 거래 10건 미만은 <b>표본 적음</b>으로 표시합니다. 전세가율 80% 초과는 깡통전세 주의 표시.
+      서울 아파트는 토지거래허가구역이라 전세가율은 투자 매력이 아니라 실수요 지지력으로만 해석하세요.</div>`],
+  ["fair", "⚖️ 모델 적정가", `
+    <div>2019년 이후 정제된 거래로 <b>AI 모델(LightGBM)</b>이 "위치·연식·면적·층·세대수·역·학교·학원·브랜드·업무지구 거리 → 가격" 관계를 학습합니다.</div>
+    <div>단지의 적정가는 <b>그 단지가 있는 동네(법정동)를 빼고 학습한 모델</b>로 예측합니다 — 모델이 그 단지 가격을 외워버리는 것을 막기 위해서입니다.</div>
+    <div>"가격을 만드는 요인"은 각 특성이 가격을 몇 % 올리거나 내렸는지(SHAP 기여도) 상위 3개입니다.</div>
+    <div class="note">⚠️ 백테스트 결과 '모델보다 싼 단지'가 이후 더 오르지는 않았습니다. <b>매수 신호가 아니라 가격 수준 참고용</b>입니다.</div>`],
+  ["keymatch", "🔑 키맞추기", `
+    <div>반경 1.5km 안 단지들과 비교해 <b>평당가가 몇 % 싼지/비싼지</b>, <b>3년 상승률이 몇 %p 덜/더 올랐는지</b>를 보여줍니다.</div>
+    <div class="note">연식 차이는 아직 보정하지 않아 신축은 '비싸게', 구축은 '싸게' 나오기 쉽습니다.</div>`],
+  ["subs", "🏠 청약 예상 차익", `
+    <div>분양가(최고가, 전용면적 기준 평당가) vs <b>주변 1km 안 10년 이내 신축</b> 시세(3곳 미만이면 1km 안 전체)를 비교합니다.
+      84㎡ 기준 차익 = 주변 84㎡ 시세 − 84㎡ 분양가.</div>
+    <div class="note">옵션·발코니 확장비 제외. 전매제한·실거주의무·자금조달은 반드시 모집공고문에서 확인하세요.
+      경쟁률·당첨가점은 1순위 해당지역(서울 거주) 기준입니다.</div>`],
+  ["limit", "⚠️ 꼭 알아둘 한계", `
+    <ul>
+      <li>모든 점수는 <b>과거 데이터 기반 참고 지표</b>이며 미래 수익을 보장하지 않습니다. 투자 판단은 본인 책임입니다.</li>
+      <li>조망·동 배치·소음·관리 상태·재건축 진행 등 데이터로 안 잡히는 요소는 반영되지 않습니다 — <b>임장 필수</b>.</li>
+      <li>거리는 직선거리라 실제 도보 시간(언덕·횡단보도)과 다를 수 있습니다.</li>
+      <li>백테스트는 2022~26년 한 번의 시장 국면 결과입니다. 자세한 검증은 <a href="#score">📊 점수 성적표</a>에서 볼 수 있습니다.</li>
+    </ul>`],
+];
+function renderGuide(focus) {
+  openSheet(`
+    <div class="sh-head"><h2 style="flex:1">📖 점수 가이드</h2><button class="icon-btn" data-close>✕</button></div>
+    <div class="note" style="margin-bottom:10px">이 앱의 모든 점수가 어떻게 계산되는지 설명합니다. 계산 코드와 같은 기준입니다.</div>
+    <div class="toc">${GUIDE.map(([id, t]) => `<a href="#guide-${id}">${t}</a>`).join("")}</div>
+    ${GUIDE.map(([id, t, body]) => `<section class="card guide" id="g-${id}"><h3>${t}</h3>${body}</section>`).join("")}`);
+  if (focus) document.getElementById("g-" + focus)?.scrollIntoView();
+}
+const guideLink = (id) => ` <a class="ginfo" href="#guide-${id}" title="어떻게 계산되나요?">ⓘ</a>`;
 
 // ---------- 점수 성적표 (백테스트 공개) ----------
 function renderScorecard() {
