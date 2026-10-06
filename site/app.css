@@ -367,3 +367,23 @@ body.has-cmp .legend { bottom: 70px; }
 .mp-x { border: 0; background: none; font-size: 18px; color: var(--sub); cursor: pointer; padding: 2px 6px; }
 .mp-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 .map-panel { max-height: calc(100% - 70px); overflow-y: auto; z-index: 650; }
+
+/* 💸 예산 계산기 */
+.bf { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.bf:last-child { border-bottom: 0; }
+.bf small { display: block; font-size: 11px; color: var(--sub); }
+.bf input[type=number] { width: 96px; text-align: right; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 15px; }
+.bf.chkrow input { width: 20px; height: 20px; }
+.bres .bmax { text-align: center; padding: 6px 0 10px; }
+.bres .bmax small { display: block; color: var(--sub); }
+.bres .bmax b { font-size: 30px; color: var(--brand); }
+.bbtns { display: flex; gap: 8px; margin-top: 10px; }
+.bbtns .btn { flex: 1; margin: 0; }
+.seg.mini { margin: 0; }
+.seg.mini button { padding: 5px 12px; }
+details.card summary { cursor: pointer; font-weight: 700; }
+.bchip { display: inline-flex; align-items: center; gap: 4px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;
+  border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 12px; font-weight: 700; }
+.bchip button { border: 0; background: none; color: #047857; cursor: pointer; padding: 0 4px; }
+.map-bchip { position: absolute; left: 10px; bottom: 54px; z-index: 500; }
+body.has-cmp .map-bchip { bottom: 116px; }

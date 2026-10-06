@@ -45,6 +45,8 @@
     <div class="m-sugg" id="m-sugg" hidden></div>
     <div class="map-ctl map-panel" id="mq-panel" hidden>
       <div class="mp-head"><b>🔎 지도 필터</b><button class="mp-x" data-close-panel aria-label="닫기">✕</button></div>
+      <button class="btn sub" data-budget>💸 내 예산으로 거르기 (대출 계산)</button>
+      <div class="budget-chip"></div>
       <label>보기 <select id="mq-view"><option value="">모든 단지</option><option value="both">⭐👥 관심단지만</option>
         <option value="fav">⭐ 내 관심만</option><option value="group">👥 그룹 관심만</option></select></label>
       <label>세대수 <select id="mq-hh"><option value="">전체</option><option value="300">300세대+</option>
@@ -132,6 +134,7 @@
         </optgroup>
       </select>
       <button id="f-more" class="chip">필터 ▾</button>
+      <button class="chip" data-budget>💸 예산 계산기</button><span class="budget-chip"></span>
       <a class="chip" href="#score" style="text-decoration:none;color:inherit">📊 성적표</a>
     </div>
     <div class="filters more" id="more" hidden>
