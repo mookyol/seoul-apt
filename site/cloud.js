@@ -32,7 +32,7 @@ const cloud = {
     if (this.user) {
       const { data } = await this.sb.from("members").select("nickname").eq("user_id", this.user.id).maybeSingle();
       this.member = data;
-      if (this.member) await Promise.all([this.pullPrivate(), this.loadCounts()]);
+      if (this.member) await Promise.all([this.pullPrivate(), this.loadCounts(), this.loadGroupFavs()]);
     }
     this.emit();
   },
@@ -54,7 +54,7 @@ const cloud = {
   // ---- 관심단지 · 메모: 로그인 시 서버 ↔ 이 기기 합치기 ----
   async pullPrivate() {
     const [{ data: fav }, { data: memos }] = await Promise.all([
-      this.sb.from("favorites").select("complex_code"),
+      this.sb.from("favorites").select("complex_code").eq("user_id", this.user.id),   // 공유된 남의 관심단지는 제외
       this.sb.from("memos").select("complex_code, body"),
     ]);
     const localFav = store.get("favs", []);
@@ -76,8 +76,35 @@ const cloud = {
   },
   async setFav(code, on) {
     if (!this.ready) return;
-    if (on) await this.sb.from("favorites").upsert({ complex_code: code });
-    else await this.sb.from("favorites").delete().eq("complex_code", code);
+    if (on) await this.sb.from("favorites").upsert({ complex_code: code, ...(this.shareCol ? { shared: this.sharePref() } : {}) });
+    else await this.sb.from("favorites").delete().eq("complex_code", code).eq("user_id", this.user.id);
+    if (this.shareCol) { await this.loadGroupFavs(); this.emit(); }
+  },
+
+  // ---- 👥 그룹 관심단지 (favorites.shared = true 인 것끼리 공유) ----
+  shareCol: false,              // DB에 shared 칸이 있는지 (SQL 적용 전이면 공유 기능만 꺼짐)
+  groupFavs: {},                // 단지코드 → [닉네임…] (나 제외)
+  nicks: {},
+  sharePref() { return store.get("shareFavs", true); },
+  async loadGroupFavs() {
+    const [{ data, error }, { data: mem }] = await Promise.all([
+      this.sb.from("favorites").select("complex_code, user_id, shared").eq("shared", true),
+      this.sb.from("members").select("user_id, nickname"),
+    ]);
+    this.shareCol = !error;
+    this.groupFavs = {};
+    if (error) return;
+    this.nicks = Object.fromEntries((mem || []).map((m) => [m.user_id, m.nickname]));
+    for (const r of data || []) {
+      if (r.user_id === this.user.id) continue;
+      (this.groupFavs[r.complex_code] ??= []).push(this.nicks[r.user_id] || "?");
+    }
+  },
+  async setShare(on) {
+    store.set("shareFavs", on);
+    if (!this.ready || !this.shareCol) return;
+    await this.sb.from("favorites").update({ shared: on }).eq("user_id", this.user.id);
+    await this.loadGroupFavs(); this.emit();
   },
   _memoTimers: {},
   setMemo(code, body) {

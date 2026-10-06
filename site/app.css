@@ -244,3 +244,14 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .verdict.up { color: var(--up); background: #fee2e255; }
 .rep-cat td:nth-child(3) { width: 34%; }
 .pbar { display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--brand) var(--v), var(--line) var(--v)); }
+
+/* 지도 빠른 필터 · 관심단지 핀 · 역 표시 */
+#mq-panel { top: 52px; display: flex; flex-direction: column; gap: 6px; }
+#mq-panel label:not(.chk) { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 13px; }
+.pin-wrap { background: none; border: 0; }
+.pin { position: relative; font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
+.pin small { position: absolute; top: -6px; right: -12px; background: #7c3aed; color: #fff; font-size: 10px; font-weight: 700;
+  border-radius: 9px; padding: 1px 5px; }
+.st-pin { transform: translate(-50%, -50%); white-space: nowrap; background: #0f766e; color: #fff; font-weight: 700; font-size: 13px;
+  padding: 4px 9px; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.3); border: 2px solid #fff; }
+.share-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; }

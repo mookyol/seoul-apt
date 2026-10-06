@@ -208,6 +208,7 @@ def main():
     last = date.fromisoformat(max(t["date"] for t in trades))
     # 기준: 최근 12개월 vs 1년 전 같은 기간 vs 3년 전 같은 기간
     w0 = months_before(last, 11).isoformat()
+    w5 = months_before(last, 59).isoformat()          # 최근 5년 (소형 단지 추정용 거래 건수)
     w1 = (months_before(last, 23).isoformat(), w0)
     w3 = (months_before(last, 47).isoformat(), months_before(last, 35).isoformat())
 
@@ -288,6 +289,7 @@ def main():
             "gap84": p84 - j84 if p84 and j84 else None,                          # 84㎡ 매매-전세
             "r1": change(p_now, p_1y), "r3": change(p_now, p_3y),
             "n12": len(recent), "vt": change(len(recent), n_prev),               # 거래량 1년 변화
+            "n5": sum(1 for t in ts if t["date"] >= w5) + sum(1 for t in js if t["date"] >= w5),   # 최근 5년 매매+전세 건수
             "last": max((t["date"] for t in ts), default=None),
             "lt": (lambda t: [t["date"], round(t["area"], 1), t["floor"], t["price"]])(max(ts, key=lambda t: t["date"]))
                   if ts else None,                                                  # 최근 매매 거래

@@ -139,6 +139,12 @@ async function init() {
   $$("#list-seg button").forEach((b) => b.classList.toggle("on", b.dataset.v === store.get("listView", "rank")));
   $("#q").addEventListener("input", () => {
     if ($("#tab-supply").classList.contains("active")) return renderSupply();   // 청약 탭에서는 청약 공고 검색
+    if ($("#tab-map").classList.contains("active")) {
+      const stq = stationQuery();
+      if (stq) return showStationOnMap(stq);
+      const q = $("#q").value.trim().replace(/\s+/g, "").replace(/역$/, "");
+      if (!q || (state.stationIdx && Object.keys(state.stationIdx).some((n) => n.startsWith(q)))) return;   // 역 이름 입력 중이면 지도에 머무름
+    }
     if (!$("#tab-list").classList.contains("active")) showTab("list");
     renderList();
   });
@@ -155,8 +161,20 @@ async function init() {
   $("#m-base").addEventListener("change", () => { store.set("mbase", $("#m-base").value); setBase($("#m-base").value); });
   $("#m-label").value = store.get("mlabel", "p84");
   $("#m-label").addEventListener("change", () => { store.set("mlabel", $("#m-label").value); updateBubbles(); });
-  $("#m-more").addEventListener("click", () => ($("#m-panel").hidden = !$("#m-panel").hidden));
+  $("#m-more").addEventListener("click", () => { $("#m-panel").hidden = !$("#m-panel").hidden; $("#mq-panel").hidden = true; });
   $("#m-filter").addEventListener("change", drawMarkers);
+  // 지도 빠른 필터 (선택은 이 기기에 기억)
+  const MQ = ["mq-view", "mq-hh", "mq-price", "mq-age", "mq-recent", "mq-small", "m-favpin"];
+  const mqSave = () => store.set("mq", Object.fromEntries(MQ.map((id) => [id, $("#" + id).type === "checkbox" ? $("#" + id).checked : $("#" + id).value])));
+  for (const [id, v] of Object.entries(store.get("mq", {}))) if ($("#" + id)) $("#" + id)[typeof v === "boolean" ? "checked" : "value"] = v;
+  MQ.forEach((id) => $("#" + id).addEventListener("change", () => { mqSave(); quickCount(); drawMarkers(); }));
+  $("#m-qbtn").addEventListener("click", () => { $("#mq-panel").hidden = !$("#mq-panel").hidden; $("#m-panel").hidden = true; });
+  $("#mq-reset").addEventListener("click", () => {
+    MQ.filter((id) => id !== "m-favpin").forEach((id) => ($("#" + id).type === "checkbox" ? ($("#" + id).checked = false) : ($("#" + id).value = "")));
+    mqSave(); quickCount(); drawMarkers();
+  });
+  quickCount();
+  $("#f-small").addEventListener("change", () => { renderList(); $("#m-filter").checked && drawMarkers(); });
   $$("#tab-list .filters select").forEach((sel) => sel.addEventListener("change", () => $("#m-filter").checked && drawMarkers()));
   getSubway().then(() => stationQuery() && renderList());   // 역 이름 검색용
   $("#cmp-bar").addEventListener("click", () => (location.hash = "cmp"));
@@ -337,7 +355,29 @@ function onZoom() {
   updateBubbles();
 }
 const BUBBLE_ZOOM = 14;      // 이 확대 단계부터 값 말풍선, +1부터 단지명까지
-const mapItems = () => ($("#m-filter")?.checked ? filtered() : state.items).filter((i) => i.la);
+// 소형 단지 추정: 세대수를 알면 100세대 미만, 모르면 최근 5년 매매+전세 거래가 적은 단지 (K-apt 미등록 소규모가 대부분)
+const SMALL_HH = 100, SMALL_N5 = 30;
+const isSmall = (i) => i.h != null ? i.h < SMALL_HH : (i.n5 ?? 0) < SMALL_N5;
+const qf = (id) => $("#" + id)?.value ?? "";
+function mapQuick(i) {
+  const hh = +qf("mq-hh"), pr = qf("mq-price"), age = qf("mq-age"), view = qf("mq-view");
+  if (!$("#mq-small")?.checked && isSmall(i) && !isFav(i.c)) return false;
+  if ($("#mq-recent")?.checked && !(i.n12 > 0)) return false;
+  if (hh && !((i.h ?? 0) >= hh)) return false;
+  if (pr) { const [lo, hi] = pr.split("-").map(Number), v = i.p84 ?? null; if (v == null || v < lo * 10000 || (hi && v >= hi * 10000)) return false; }
+  if (age === "new" && !(i.y && thisYear - i.y <= 10)) return false;
+  if (age === "mid" && !(i.y && thisYear - i.y <= 20)) return false;
+  if (age === "old" && !(i.y && thisYear - i.y >= 30)) return false;
+  if (view === "fav" && !isFav(i.c)) return false;
+  if (view === "group" && !cloud.groupFavs[i.c]) return false;
+  if (view === "both" && !(isFav(i.c) || cloud.groupFavs[i.c])) return false;
+  return true;
+}
+function quickCount() {
+  const n = ["mq-hh", "mq-price", "mq-age", "mq-view"].filter((id) => qf(id)).length + ($("#mq-recent")?.checked ? 1 : 0) + ($("#mq-small")?.checked ? 1 : 0);
+  if ($("#m-qbtn")) $("#m-qbtn").textContent = n ? `🔎 필터 ${n}` : "🔎 필터";
+}
+const mapItems = () => ($("#m-filter")?.checked ? filtered() : state.items).filter((i) => i.la && mapQuick(i));
 const shortWon = (man) => man == null ? null : man >= 10000 ? (man / 10000).toFixed(1).replace(/\.0$/, "") + "억" : man.toLocaleString() + "만";
 const LABELS = {
   p84: (i) => i.p84 ? shortWon(i.p84) : i.p59 ? `59㎡ ${shortWon(i.p59)}` : i.p ? `평 ${shortWon(i.p)}` : null,
@@ -371,12 +411,27 @@ function updateBubbles() {
       .on("click", () => showPeek(i)).addTo(state.bubbles);
   }
 }
+function drawFavPins() {
+  state.favLayer ??= L.layerGroup().addTo(state.map);
+  state.favLayer.clearLayers();
+  if (!($("#m-favpin")?.checked ?? true)) return;
+  const codes = new Set([...favs(), ...Object.keys(cloud.groupFavs || {})]);
+  for (const c of codes) {
+    const i = state.byCode[c];
+    if (!i?.la) continue;
+    const mine = isFav(c), g = cloud.groupFavs?.[c] || [];
+    const html = `<div class="pin${mine ? " mine" : ""}">${mine ? "⭐" : "👥"}${g.length ? `<small>${g.length}</small>` : ""}</div>`;
+    L.marker([i.la, i.lo], { icon: L.divIcon({ className: "pin-wrap", html, iconSize: null, iconAnchor: [12, 30] }), zIndexOffset: 5000 })
+      .bindTooltip(`${esc(i.n)}${g.length ? " · 👥 " + g.map(esc).join(", ") : ""}`, { direction: "top" })
+      .on("click", () => showPeek(i)).addTo(state.favLayer);
+  }
+}
 // 지도에서 단지를 누르면 아래에 뜨는 요약 카드
 function showPeek(i) {
   const lt = i.lt, ct = ctOf(i);
   $("#peek").innerHTML = `
     <button class="peek-x" aria-label="닫기">✕</button>
-    <div class="peek-h"><b>${esc(i.n)}</b> ${isFav(i.c) ? "⭐" : ""}<div class="note">${esc(i.g)} ${esc(i.d)} ${esc(i.j)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}${i.far ? ` · 용적률 ${i.far}%` : ""}</div></div>
+    <div class="peek-h"><b>${esc(i.n)}</b> ${isFav(i.c) ? "⭐" : ""}${cloud.groupFavs?.[i.c] ? ` <span class="tag">👥 ${cloud.groupFavs[i.c].map(esc).join(", ")}</span>` : ""}<div class="note">${esc(i.g)} ${esc(i.d)} ${esc(i.j)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}${i.far ? ` · 용적률 ${i.far}%` : ""}</div></div>
     <div class="peek-g">
       <div><small>입지점수</small><b class="lsc">${i.ls ?? "–"}</b></div>
       <div><small>84㎡ 매매</small><b>${won(i.p84)}</b></div>
@@ -408,6 +463,7 @@ function drawMarkers() {
       .addTo(state.layer);
     state.markers.push([mk, r]);
   }
+  drawFavPins();
   $("#legend").innerHTML = COLOR_MODES[mode].label + " " +
     [...COLOR_MODES[mode].stops.map(([, c, t]) => [c, t]), ["#9ca3af", "자료없음"]]
       .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("") +
@@ -624,7 +680,8 @@ function filtered(ignoreGu = false) {
     (!n || i.n12 >= n) &&
     (!dg || (i.dg && dg.includes(i.dg))) &&
     (!cm || (ctOf(i) != null && ctOf(i) <= cm)) &&
-    (!stq || (i.la && (i._std = Math.round(kmTo(stq, i) * 1000)) <= state.stRadius)));
+    (!stq || (i.la && (i._std = Math.round(kmTo(stq, i) * 1000)) <= state.stRadius)) &&
+    (words.length || $("#f-small")?.checked || !isSmall(i)));
   const hi = (k) => (i) => -(i[k] ?? -1e9), lo = (k) => (i) => i[k] ?? 1e9;
   const key = {
     ls: hi("ls"), r1: hi("r1"), r3: hi("r3"), kp: lo("kp"), kr: lo("kr"), jr: hi("jr"), n12: hi("n12"), vt: hi("vt"),
@@ -718,6 +775,13 @@ function setListView(v) {
   renderList();
 }
 
+// 역을 지도 가운데로 옮기고 반경 원 + 역 이름 표시
+function showStationOnMap(stq) {
+  state.map.setView([stq.la, stq.lo], state.stRadius > 1000 ? 14 : 15);
+  state.stCircle?.remove(); state.stPin?.remove();
+  state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#0f766e", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
+  state.stPin = L.marker([stq.la, stq.lo], { icon: L.divIcon({ className: "pin-wrap", html: `<div class="st-pin">🚇 ${esc(stq.name)}역</div>`, iconSize: null, iconAnchor: [0, 0] }), zIndexOffset: 6000, interactive: false }).addTo(state.map);
+}
 function renderList() {
   if (store.get("listView", "rank") === "gu") return renderGuTable();
   const xs = filtered(), stq = stationQuery();
@@ -734,9 +798,7 @@ function renderList() {
   $$("#count [data-st]").forEach((b) => (b.onclick = () => { $("#q").value = b.dataset.st + "역"; renderList(); }));
   if ($("#st-map")) $("#st-map").onclick = () => {
     showTab("map"); $("#m-filter").checked = true; drawMarkers();
-    state.map.setView([stq.la, stq.lo], state.stRadius > 1000 ? 14 : 15);
-    state.stCircle?.remove();
-    state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#0f766e", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
+    showStationOnMap(stq);
   };
   $("#list").innerHTML = xs.length ? xs.slice(0, 200).map((i, k) => itemHTML(i, k + 1)).join("")
     : `<div class="empty">조건에 맞는 단지가 없습니다</div>`;
@@ -748,6 +810,17 @@ function renderFav() {
     : `<div class="empty">아직 관심단지가 없습니다.<br>단지를 열고 ☆를 눌러 추가하세요.</div>`;
   bindItems($("#fav"));
   $("#fav-note").textContent = cloud.ready ? "(내 계정에 저장 · 폰·PC 공통)" : "(이 기기에만 저장 — 로그인하면 모든 기기에서 보입니다)";
+  const gbox = $("#group-favs");
+  if (cloud.ready && cloud.shareCol) {
+    const rows = Object.entries(cloud.groupFavs).map(([c, who]) => [state.byCode[c], who]).filter(([i]) => i)
+      .sort((a, b) => b[1].length - a[1].length);
+    gbox.innerHTML = `<div class="count share-row">👥 그룹 관심단지
+        <label class="chk"><input type="checkbox" id="share-favs" ${cloud.sharePref() ? "checked" : ""}> 내 관심단지 그룹에 공유</label></div>
+      <ol class="list">${rows.length ? rows.map(([i, who]) => itemHTML(i).replace('<div class="sub">', `<div class="sub"><span class="tag">👥 ${who.map(esc).join(", ")}</span><br>`)).join("")
+        : `<div class="empty">아직 그룹에 공유된 관심단지가 없습니다</div>`}</ol>`;
+    $("#share-favs").onchange = (e) => cloud.setShare(e.target.checked);
+    bindItems(gbox);
+  } else gbox.innerHTML = cloud.ready ? "" : `<div class="note" style="padding:0 16px">로그인하고 그룹에 가입하면 지인들의 관심단지를 볼 수 있습니다.</div>`;
   if ($("#tab-fav").classList.contains("active")) renderFeed();
 }
 function renderCmpBar() {
@@ -866,7 +939,7 @@ async function renderDetail(code) {
     toggleFav(code);
     e.currentTarget.classList.toggle("on", isFav(code));
     e.currentTarget.textContent = isFav(code) ? "★" : "☆";
-    renderList(); renderFav();
+    renderList(); renderFav(); state.map && drawFavPins();
   };
   $("#cmp-btn").onclick = (e) => {
     if (!inCmp(code) && cmps().length >= 4) return alert("비교는 최대 4개 단지까지 가능합니다");

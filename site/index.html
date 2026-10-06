@@ -38,10 +38,25 @@
         <option value="p84">말풍선: 84㎡ 시세</option><option value="pp">말풍선: 평당가</option>
         <option value="r1">말풍선: 1년 상승률</option><option value="ls">말풍선: 입지점수</option><option value="name">말풍선: 단지명만</option>
       </select>
+      <button class="chk" id="m-qbtn">🔎 필터</button>
       <button class="chk" id="m-more" aria-label="지도 설정">⚙️</button>
+    </div>
+    <div class="map-ctl map-panel" id="mq-panel" hidden>
+      <label>보기 <select id="mq-view"><option value="">모든 단지</option><option value="both">⭐👥 관심단지만</option>
+        <option value="fav">⭐ 내 관심만</option><option value="group">👥 그룹 관심만</option></select></label>
+      <label>세대수 <select id="mq-hh"><option value="">전체</option><option value="300">300세대+</option>
+        <option value="500">500세대+</option><option value="1000">1000세대+</option></select></label>
+      <label>84㎡ 시세 <select id="mq-price"><option value="">전체</option><option value="0-10">10억 미만</option>
+        <option value="10-15">10~15억</option><option value="15-20">15~20억</option><option value="20-30">20~30억</option><option value="30-0">30억 이상</option></select></label>
+      <label>연식 <select id="mq-age"><option value="">전체</option><option value="new">10년 이내</option>
+        <option value="mid">20년 이내</option><option value="old">30년 이상</option></select></label>
+      <label class="chk"><input type="checkbox" id="mq-recent"> 최근 1년 거래 있는 단지만</label>
+      <label class="chk"><input type="checkbox" id="mq-small"> 소형·정보부족 단지도 보기</label>
+      <button class="chip" id="mq-reset">초기화</button>
     </div>
     <div class="map-ctl map-panel" id="m-panel" hidden>
       <label class="chk"><input type="checkbox" id="m-filter"> 순위 탭 필터를 지도에도 적용</label>
+      <label class="chk"><input type="checkbox" id="m-favpin" checked> ⭐👥 관심단지 핀 표시</label>
       <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정 표시</label>
       <label class="chk"><input type="checkbox" id="m-subway" checked> 지하철 노선·역</label>
       <label class="chk"><input type="checkbox" id="m-gu" checked> 구 경계</label>
@@ -134,6 +149,7 @@
       <label>최근 1년 거래 <select id="f-n">
         <option value="">전체</option><option>3</option><option>5</option><option>10</option>
       </select> 건 이상</label>
+      <label class="chk"><input type="checkbox" id="f-small"> 소형·정보부족 단지 포함</label>
     </div>
     <div class="count" id="count"></div>
     <ol class="list" id="list"></ol>
@@ -174,6 +190,7 @@
   <section id="tab-fav" class="tab">
     <div class="count">⭐ 관심단지 <small id="fav-note"></small></div>
     <ol class="list" id="fav"></ol>
+    <div id="group-favs"></div>
     <div id="feed"></div>
   </section>
 </main>
