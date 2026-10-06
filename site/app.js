@@ -137,6 +137,7 @@ async function init() {
   state.items = data.items;
   state.meta = data.meta;
   state.items.forEach((it) => (state.byCode[it.c] = it));
+  for (const [a, p] of Object.entries(state.meta.alias || {})) if (state.byCode[p]) state.byCode[a] = state.byCode[p];   // 합쳐진 옛 코드(관심단지·링크) 호환
   computeScores();
 
   const gus = [...new Set(state.items.map((i) => i.g))].sort();
@@ -192,7 +193,7 @@ async function init() {
   $("#m-price").classList.toggle("off", !priceOn());
   $("#m-color").hidden = $("#m-label").hidden = !priceOn();
   // 지도 빠른 필터 (선택은 이 기기에 기억)
-  const MQ = ["mq-view", "mq-hh", "mq-price", "mq-age", "mq-recent", "mq-small", "m-favpin"];
+  const MQ = ["mq-view", "mq-hh", "mq-price", "mq-age", "mq-far", "mq-ty", "mq-dg", "mq-recent", "mq-small", "m-favpin"];
   const mqSave = () => store.set("mq", Object.fromEntries(MQ.map((id) => [id, $("#" + id).type === "checkbox" ? $("#" + id).checked : $("#" + id).value])));
   for (const [id, v] of Object.entries(store.get("mq", {}))) if ($("#" + id)) $("#" + id)[typeof v === "boolean" ? "checked" : "value"] = v;
   MQ.forEach((id) => $("#" + id).addEventListener("change", () => { mqSave(); quickCount(); drawMarkers(); }));
@@ -396,13 +397,17 @@ function mapQuick(i) {
   if (age === "new" && !(i.y && thisYear - i.y <= 10)) return false;
   if (age === "mid" && !(i.y && thisYear - i.y <= 20)) return false;
   if (age === "old" && !(i.y && thisYear - i.y >= 30)) return false;
+  const far = +qf("mq-far"), ty = qf("mq-ty"), dg = qf("mq-dg");
+  if (far && !(i.far != null && (far < 0 ? i.far <= -far : i.far > far))) return false;
+  if (ty && i.ty !== ty) return false;
+  if (dg && !(i.dg && dg.includes(i.dg))) return false;
   if (view === "fav" && !isFav(i.c)) return false;
   if (view === "group" && !cloud.groupFavs[i.c]) return false;
   if (view === "both" && !(isFav(i.c) || cloud.groupFavs[i.c])) return false;
   return true;
 }
 function quickCount() {
-  const n = ["mq-hh", "mq-price", "mq-age", "mq-view"].filter((id) => qf(id)).length + ($("#mq-recent")?.checked ? 1 : 0) + ($("#mq-small")?.checked ? 1 : 0);
+  const n = ["mq-hh", "mq-price", "mq-age", "mq-view", "mq-far", "mq-ty", "mq-dg"].filter((id) => qf(id)).length + ($("#mq-recent")?.checked ? 1 : 0) + ($("#mq-small")?.checked ? 1 : 0);
   if ($("#m-qbtn")) $("#m-qbtn").textContent = n ? `🔎 필터 ${n}` : "🔎 필터";
 }
 const mapItems = () => ($("#m-filter")?.checked ? filtered() : state.items).filter((i) => i.la && mapQuick(i));

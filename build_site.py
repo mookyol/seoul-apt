@@ -108,6 +108,65 @@ def value_fields(v):
     }
 
 
+# ---- 같은 단지가 지번별로 쪼개져 여러 개로 보이는 것 합치기 ----
+# 실거래 자료는 지번마다 단지를 따로 만든다: "e편한세상서울대입구1단지·2단지(같은 K-apt 단지)", "○○(임대)"(같은 지번의 임대동) 등
+def base_name(n):
+    n = re.sub(r"\(.*?\)", "", n or "")
+    n = re.sub(r"\d+\s*단지$", "", n.strip())
+    n = re.sub(r"(아파트|APT)$", "", n.strip(), flags=re.I)
+    return n.replace(" ", "").lower()
+
+
+def merge_groups(info, n_trades):
+    """같은 단지로 볼 묶음 → {보조 코드: 대표 코드}. 보수적으로: 이름 뿌리가 같고 가까운 경우만."""
+    rows = []
+    for c, r in info.items():
+        try:
+            rows.append((c, r, float(r["위도"]), float(r["경도"])))
+        except (TypeError, ValueError, KeyError):
+            continue
+    parent = {c: c for c, *_ in rows}
+
+    def find(c):
+        while parent[c] != c:
+            parent[c] = parent[parent[c]]
+            c = parent[c]
+        return c
+
+    by_gu = defaultdict(list)
+    for x in rows:
+        by_gu[x[1]["구"]].append(x)
+    for xs in by_gu.values():
+        for i in range(len(xs)):
+            ca, ra, la, lo = xs[i]
+            ba, ya, ia = base_name(ra["아파트명"]), int(ra.get("건축년도") or 0), "임대" in ra["아파트명"]
+            for j in range(i + 1, len(xs)):
+                cb, rb, lb, lob = xs[j]
+                if abs(la - lb) > 0.006 or abs(lo - lob) > 0.007:
+                    continue
+                bb, yb, ib = base_name(rb["아파트명"]), int(rb.get("건축년도") or 0), "임대" in rb["아파트명"]
+                if not ba or ba != bb or abs(ya - yb) > 2:
+                    continue
+                d = km((la, lo), (lb, lob))
+                same_kapt = ra.get("kaptCode") and ra.get("kaptCode") == rb.get("kaptCode")
+                same_lot = ra["법정동"] == rb["법정동"] and ra["지번"] == rb["지번"]
+                if (same_kapt and d <= 0.6) or same_lot or (ia != ib and ra["법정동"] == rb["법정동"] and d <= 0.5):
+                    parent[find(ca)] = find(cb)
+    groups = defaultdict(list)
+    for c, *_ in rows:
+        groups[find(c)].append(c)
+    alias = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        # 대표: 임대 아닌 것 중 매매 거래가 가장 많은 단지
+        lead = max(members, key=lambda c: ("임대" not in info[c]["아파트명"], n_trades.get(c, 0)))
+        for c in members:
+            if c != lead:
+                alias[c] = lead
+    return alias
+
+
 def load_trades():
     out = []
     for path in sorted((ROOT / "data" / "trades").glob("*.csv")):
@@ -232,6 +291,15 @@ def main():
     for r in read_csv(fpath) if fpath.exists() else []:
         value.setdefault(r["단지코드"], {}).update(r)
 
+    # 같은 단지가 지번별로 쪼개진 것 합치기 (보조 코드의 거래를 대표 코드로)
+    alias = merge_groups(info, {c: len(v) for c, v in by_code.items()})
+    members = defaultdict(list)
+    for a, p in alias.items():
+        by_code[p].extend(by_code.pop(a, []))
+        j_by_code[p].extend(j_by_code.pop(a, []))
+        members[p].append(a)
+    print(f"🔗 지번별로 쪼개진 단지 합침: {len(alias)}개 → {len(members)}개 단지로")
+
     shutil.rmtree(OUT, ignore_errors=True)
     (OUT / "c").mkdir(parents=True)
 
@@ -246,6 +314,8 @@ def main():
 
     summary, details = [], {}
     for code in sorted(set(by_code) | set(basic)):
+        if code in alias:
+            continue
         ts = by_code.get(code, [])
         ci = info.get(code) if info.get(code, {}).get("위도") else basic.get(code)
         if not ci:
@@ -272,7 +342,8 @@ def main():
 
         summary.append({
             "c": code, "n": display_name(ci["아파트명"], ci["법정동"], ci.get("kapt단지명")),
-            "al": " ".join(x for x in {ci["아파트명"], ci.get("kapt단지명") or ""} if x),   # 검색용 다른 이름
+            "al": " ".join(x for x in {ci["아파트명"], ci.get("kapt단지명") or "",
+                                       *(info[m]["아파트명"] for m in members.get(code, []))} if x),   # 검색용 다른 이름 (합친 단지 포함)
             "g": ci["구"], "d": ci["법정동"], "j": ci["지번"],
             "la": round(float(ci["위도"]), 6) if ci.get("위도") else None,
             "lo": round(float(ci["경도"]), 6) if ci.get("경도") else None,
@@ -280,6 +351,7 @@ def main():
             # 세대수: K-apt 우선, 없으면 건축물대장 (K-apt 미등록 소규모 단지)
             "h": int(num("세대수")) if num("세대수") else (int(num("대장세대수")) if num("대장세대수") else None),
             "hsrc": "kapt" if num("세대수") else ("대장" if num("대장세대수") else None),
+            "mg": len(members.get(code, [])) or None,                       # 합쳐진 지번 단지 수
             "b": ci.get("건설사") or None,
             "st": ci.get("최근접역") or None, "sd": int(num("역거리m")) if num("역거리m") is not None else None,
             "sl": int(num("역세권노선수") or 0),
@@ -325,6 +397,22 @@ def main():
                        for t in sorted(ts, key=lambda t: t["date"], reverse=True)[:30]],
         }
 
+    # 합친 단지의 세대수 = 서로 다른 K-apt 단지 세대수의 합 (같은 K-apt를 두 번 세지 않음)
+    for s_ in summary:
+        if s_.get("mg"):
+            seen_k, tot = set(), 0
+            for c in [s_["c"], *members[s_["c"]]]:
+                r = info.get(c, {})
+                k, h = r.get("kaptCode"), r.get("세대수")
+                if k and h and k not in seen_k:
+                    seen_k.add(k); tot += int(float(h))
+            if tot > (s_["h"] or 0):
+                s_["h"], s_["hsrc"] = tot, "kapt"
+            # 이름: "e편한세상서울대입구1단지" → "e편한세상서울대입구" (합친 묶음 전체를 대표하도록)
+            nm = re.sub(r"\s*\d+\s*단지$", "", re.sub(r"\((?:\d|임대|고층|저층).*?\)", "", s_["n"])).strip()
+            if len(nm) >= 3:
+                s_["n"] = nm
+
     # 키맞추기: 반경 1.5km 안 단지들과 평당가·3년 상승률 비교
     priced = [s for s in summary if s["p"] and s["la"]]
     for s in summary:
@@ -361,7 +449,7 @@ def main():
         (OUT / "c" / f"{code}.json").write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")),
                                                 encoding="utf-8")
 
-    meta = {"updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
+    meta = {"alias": alias, "updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
             "dataTo": last.isoformat(), "count": len(summary), "hasRent": bool(jeonse)}
     for key, name in (("fair", "fair_value_meta.json"), ("backtest", "backtest.json")):   # 점수 성적표용
         p = ROOT / "data" / "model" / name

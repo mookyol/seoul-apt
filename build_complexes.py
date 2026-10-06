@@ -268,7 +268,14 @@ def building(key, bjd, jibun):
               "bun": m.group(2).zfill(4), "ji": (m.group(3) or "0").zfill(4), "numOfRows": 100, "pageNo": 1, "_type": "json"}
     hh_found = 0
     for op in ("getBrRecapTitleInfo", "getBrTitleInfo"):
-        r = requests.get(BLD_URL + op, params=params, timeout=30)
+        for attempt in range(3):            # 공공데이터 서버가 해외(깃허브)에서 접속 시 가끔 응답이 늦음 → 3번까지 재시도
+            try:
+                r = requests.get(BLD_URL + op, params=params, timeout=30)
+                break
+            except requests.RequestException:
+                if attempt == 2:
+                    raise
+                time.sleep(5 * (attempt + 1))
         if r.status_code in (401, 403):
             raise PermissionError("건축물대장 API 미승인")
         try:
@@ -379,17 +386,26 @@ def main():
     # 용적률 (건축물대장) — 비어 있는 단지만. API가 아직 승인 전이면 조용히 건너뜀
     need_far = [r for r in existing.values() if not r.get("용적률")]
     need_far.sort(key=lambda r: r.get("최근거래일") or "", reverse=True)
+    fails = 0
     try:
         for i, r in enumerate(need_far, 1):
             if time.time() > deadline:
                 save()
                 sys.exit(3)
-            r.update(building(service_key, r.get("법정동코드"), r.get("지번")) or {"용적률": "없음"})
+            try:
+                r.update(building(service_key, r.get("법정동코드"), r.get("지번")) or {"용적률": "없음"})
+                fails = 0
+            except requests.RequestException:   # 접속 지연 — 이 단지는 비워 두고 다음 실행에서 다시
+                fails += 1
+                if fails >= 20:
+                    print("ℹ️  건축물대장 서버 응답 없음 (20회 연속) — 다음 실행에서 이어서")
+                    break
             if i % 300 == 0 or i == len(need_far):
                 save()
                 print(f"  용적률 {i:,}/{len(need_far):,} 저장", flush=True)
     except PermissionError:
         print("ℹ️  건축물대장 API 미승인·한도 초과 — 남은 단지는 다음 실행에서 이어서")
+    save()
 
     # (학교 이름 칸이 비어 있음 = 아직 조회 안 함. 2km 안에 학교가 없으면 "없음"으로 기록)
     need = [r for r in existing.values() if r.get("위도") and (not r.get("학원수1km") or not r.get("고등학교"))]
