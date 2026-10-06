@@ -1371,7 +1371,7 @@ async function drawReport(i, d) {
     const axes = RADAR_AXES.map(([l, k, low]) => [l, seoulPct(k, i[k], low)]);
     state.repCharts.push(new Chart($("#rep-radar"), { type: "radar",
       data: { labels: axes.map(([l, p]) => p == null ? l + " ?" : l), datasets: [
-        { label: i.n, data: axes.map(([, p]) => p ?? 0), borderColor: "#0f766e", backgroundColor: "rgba(15,118,110,.22)", pointBackgroundColor: "#0f766e" },
+        { label: i.n, data: axes.map(([, p]) => p ?? null), spanGaps: true, borderColor: "#0f766e", backgroundColor: "rgba(15,118,110,.22)", pointBackgroundColor: "#0f766e" },
         { label: "서울 중간", data: axes.map(() => 50), borderColor: "#94a3b8", borderDash: [4, 4], backgroundColor: "transparent", pointRadius: 0 }] },
       options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.datasetIndex ? "서울 중간" : `서울 상위 ${Math.max(1, 100 - c.raw)}%` } } },
         scales: { r: { min: 0, max: 100, ticks: { display: false, stepSize: 25 }, grid: { color: "rgba(148,163,184,.3)" }, angleLines: { color: "rgba(148,163,184,.3)" },

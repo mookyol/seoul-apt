@@ -385,13 +385,19 @@ def main():
 
         vol = defaultdict(int)
         pp = defaultdict(list)
+        # 평형 고정 평당가: 그 단지 같은 평형대 평균을 뺀 뒤 단지 전체 평균을 더함 → 그 달 어떤 평형이 팔렸는지에 흔들리지 않음
+        bl = defaultdict(list)
+        for t in ts:
+            bl[t["band"]].append(math.log(t["ppp"]))
+        bmean = {b: sum(v) / len(v) for b, v in bl.items()}
+        amean = sum(math.log(t["ppp"]) for t in ts) / len(ts) if ts else 0
         for t in ts:
             vol[t["date"][:7]] += 1
-            pp[t["date"][:7]].append(t["ppp"])
+            pp[t["date"][:7]].append(math.log(t["ppp"]) - bmean[t["band"]] + amean)
         details[code] = {
             "series": monthly(ts, "price"),                    # 평형별 월별 매매가 중앙값
             "jseries": monthly(js, "price"),                   # 평형별 월별 전세가 중앙값
-            "pp": [[mo, median(v)] for mo, v in sorted(pp.items())],  # 월별 평당가 (단지 비교용)
+            "pp": [[mo, round(math.exp(statistics.median(v)))] for mo, v in sorted(pp.items())],  # 월별 평당가 (평형 고정, 단지 비교·리포트용)
             "vol": sorted(vol.items()),                        # 월별 거래량
             "trades": [[t["date"], round(t["area"], 1), t["floor"], t["price"]]
                        for t in sorted(ts, key=lambda t: t["date"], reverse=True)[:30]],
