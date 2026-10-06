@@ -182,6 +182,7 @@ async function init() {
   $("#m-supply").addEventListener("change", toggleSupplyLayer);
   $("#m-subway").addEventListener("change", onZoom);
   $("#m-gu").addEventListener("change", onZoom);
+  $("#m-bounds").addEventListener("change", drawBounds);
   $("#m-base").value = store.get("mbase", "clean");
   $("#m-base").addEventListener("change", () => { store.set("mbase", $("#m-base").value); setBase($("#m-base").value); });
   $("#m-label").value = store.get("mlabel", "p84");
@@ -391,6 +392,24 @@ function onZoom() {
   updateBubbles();
 }
 const BUBBLE_ZOOM = 14;      // 이 확대 단계부터 값 말풍선, +1부터 단지명까지
+const BOUND_ZOOM = 15;       // 이 확대 단계부터 단지 경계(구획) 표시
+// 단지 경계: OpenStreetMap 주거지 다각형을 단지 좌표와 맞춘 것 (build_bounds.py → static/bounds.json)
+async function drawBounds() {
+  const m = state.map;
+  state.boundLayer ??= L.layerGroup().addTo(m);
+  state.boundLayer.clearLayers();
+  if (m.getZoom() < BOUND_ZOOM || !($("#m-bounds")?.checked ?? true)) return;
+  state.bounds ??= await fetch("static/bounds.json").then((r) => r.json()).catch(() => ({}));
+  if (m.getZoom() < BOUND_ZOOM) return;
+  const b = m.getBounds().pad(0.3), shown = new Set(mapItems().map((i) => i.c));
+  for (const [c, ring] of Object.entries(state.bounds)) {
+    const i = state.byCode[c];
+    if (!i || !shown.has(i.c) || !b.contains(ring[0])) continue;
+    const mine = isFav(i.c) || inCmp(i.c);
+    L.polygon(ring, { color: mine ? "#f59e0b" : "#0f766e", weight: mine ? 2.5 : 1.5, opacity: 0.8, fillColor: mine ? "#f59e0b" : "#14b8a6", fillOpacity: 0.07 })
+      .on("click", () => showPeek(i)).addTo(state.boundLayer);
+  }
+}
 // 소형 단지 추정: 세대수를 알면 100세대 미만, 모르면 최근 5년 매매+전세 거래가 적은 단지 (K-apt 미등록 소규모가 대부분)
 const SMALL_HH = 100, SMALL_N5 = 30;
 const isSmall = (i) => i.h != null ? i.h < SMALL_HH : (i.n5 ?? 0) < SMALL_N5;
@@ -442,6 +461,7 @@ function updateBubbles() {
   state.bubbles ??= L.layerGroup().addTo(m);
   state.bubbles.clearLayers();
   const z = m.getZoom();
+  drawBounds();
   if (z < BUBBLE_ZOOM) return;
   const b = m.getBounds().pad(0.1), mode = $("#m-color").value, on = priceOn(), lab = on ? LABELS[$("#m-label")?.value || "p84"] : () => null;
   // 겹침 방지: 화면을 칸으로 나눠 칸마다 세대수가 가장 큰 단지 하나만 (확대할수록 칸이 작아져 더 많이 보임)
