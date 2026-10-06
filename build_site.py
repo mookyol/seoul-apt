@@ -262,7 +262,9 @@ def main():
             "la": round(float(ci["위도"]), 6) if ci.get("위도") else None,
             "lo": round(float(ci["경도"]), 6) if ci.get("경도") else None,
             "y": int(ci["건축년도"]) if ci.get("건축년도") else None,
-            "h": int(num("세대수")) if num("세대수") else None,
+            # 세대수: K-apt 우선, 없으면 건축물대장 (K-apt 미등록 소규모 단지)
+            "h": int(num("세대수")) if num("세대수") else (int(num("대장세대수")) if num("대장세대수") else None),
+            "hsrc": "kapt" if num("세대수") else ("대장" if num("대장세대수") else None),
             "b": ci.get("건설사") or None,
             "st": ci.get("최근접역") or None, "sd": int(num("역거리m")) if num("역거리m") is not None else None,
             "sl": int(num("역세권노선수") or 0),

@@ -13,6 +13,7 @@
   진행 중 끊겨도 100개마다 저장하므로 다시 돌리면 이어서 처리
 """
 import csv
+import difflib
 import math
 import os
 import re
@@ -45,7 +46,7 @@ COMPLEX_FIELDS = [
     "업무지구최근접", "업무지구거리km", "광화문km", "강남km", "여의도km",
     "kaptCode", "kapt단지명", "세대수", "동수", "최고층", "사용승인일", "건설사", "난방", "kapt매칭",
     "초등학교", "초등학교m", "중학교", "중학교m", "고등학교", "고등학교m", "학원수500m", "학원수1km", "최근거래일",
-    "용적률", "건폐율", "대지면적", "연면적",
+    "용적률", "건폐율", "대지면적", "연면적", "대장세대수",
 ]
 KAPT_FIELDS = ["kaptCode", "bjdCode", "kaptName", "kaptAddr", "doroJuso", "세대수", "동수",
                "최고층", "사용승인일", "건설사", "난방", "분양구분"]
@@ -172,10 +173,23 @@ class Kapt:
         write_csv(KAPT_CSV, KAPT_FIELDS, self.rows)
 
 
-def norm_name(s):
-    s = re.sub(r"\(.*?\)", "", s or "")
-    s = re.sub(r"아파트|APT|apt|\s|제(?=\d+차)", "", s)
-    return s.replace("단지", "").lower()
+# 영문·약칭 브랜드 → 한글 표기 통일 (실거래 신고명과 K-apt 이름의 표기 차이 흡수)
+BRAND_SYN = [(r"i-?park", "아이파크"), (r"e-?편한세상|이-?편한세상", "이편한세상"), (r"sk\s*view|sk뷰|에스케이뷰", "에스케이뷰"),
+             (r"hill\s*state", "힐스테이트"), (r"xi", "자이"), (r"the\s*sharp|더#", "더샵"), (r"lh", "엘에이치"),
+             (r"prugio", "푸르지오"), (r"raemian", "래미안"), (r"lotte\s*castle", "롯데캐슬"), (r"s-?클래스", "에스클래스")]
+
+
+def norm_name(s, dong=""):
+    s = (s or "").lower()
+    s = re.sub(r"\(.*?\)|\[.*?\]", "", s)
+    s = re.sub(r"\d+(\s*[~,]\s*\d+)*\s*동", "", s)      # "117동~125동", "201동" 같은 동 번호는 단지 이름이 아님
+    for pat, rep in BRAND_SYN:
+        s = re.sub(pat, rep, s)
+    s = re.sub(r"아파트|apt|\s|제(?=\d+차)|[·.,\-]", "", s)
+    stem = re.sub(r"(본동|\d*동(\d+가)?|\d+가)$", "", dong or "")
+    if stem and len(s) > len(stem) + 2:
+        s = s.replace(stem, "")                       # "래미안장위퍼스트하이" → "래미안퍼스트하이"
+    return s.replace("단지", "")
 
 
 def addr_jibun(addr, dong):
@@ -184,19 +198,33 @@ def addr_jibun(addr, dong):
 
 
 def match_kapt(c, candidates):
-    cands = [k for k in candidates if k.get("kaptCode")]
+    cands = [k for k in candidates if k.get("kaptCode") and k.get("kaptName")]
     if not cands:
         return None, "동에 K-apt 단지 없음"
     by_jibun = [k for k in cands if addr_jibun(k["kaptAddr"], c["법정동"]) == c["지번"]]
     if len(by_jibun) == 1:
         return by_jibun[0], "지번"
-    n = norm_name(c["아파트명"])
+    n = norm_name(c["아파트명"], c["법정동"])
     pool = by_jibun or cands
-    by_name = [k for k in pool if n and (n in norm_name(k["kaptName"]) or norm_name(k["kaptName"]) in n)]
+    digits = lambda x: re.findall(r"\d+", x)
+
+    def same_name(a, b):
+        # 오매칭 방지: 3글자 이상 · 숫자(차수·단지) 일치 · 짧은 쪽이 긴 쪽의 절반 이상일 때만 "포함"을 같은 이름으로 인정
+        short, long_ = sorted((a, b), key=len)
+        return len(short) >= 3 and digits(a) == digits(b) and len(short) * 2 >= len(long_) and short in long_
+
+    by_name = [k for k in pool if n and same_name(n, norm_name(k["kaptName"], c["법정동"]))]
     if len(by_name) == 1:
         return by_name[0], "지번+이름" if by_jibun else "이름"
     if len(by_jibun) > 1:  # 같은 지번에 여러 단지 → 이름으로도 못 가르면 세대수 큰 쪽(임대동 분리 등록 대비)
         return max(by_jibun, key=lambda k: float(k["세대수"] or 0)), "지번(복수)"
+    # 재건축 신축은 지번이 바뀌고 이름 표기도 달라짐 → 이름 유사도로 (가장 비슷한 후보가 확실히 앞설 때만)
+    if n and len(n) >= 3:
+        # 숫자(차수·단지)가 다르면 다른 단지로 봄 ("등촌6차" ≠ "등촌2차"), 철자만 조금 다른 경우만 허용 ("시그니쳐" ≈ "시그니처")
+        scored = sorted(((difflib.SequenceMatcher(None, n, kn).ratio(), k) for k in pool
+                         if digits(kn := norm_name(k["kaptName"], c["법정동"])) == digits(n)), key=lambda x: -x[0])
+        if scored and scored[0][0] >= 0.88 and (len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.15):
+            return scored[0][1], "이름유사"
     return None, "매칭실패"
 
 
@@ -244,11 +272,14 @@ def building(key, bjd, jibun):
             raise PermissionError("건축물대장 API 미승인")
         items = ((r.json().get("response", {}).get("body", {}).get("items") or {}) or {}).get("item") or []
         items = items if isinstance(items, list) else [items]
+        hh = sum(int(float(i.get("hhldCnt") or 0)) for i in items) if op == "getBrTitleInfo" else \
+            max((int(float(i.get("hhldCnt") or 0)) for i in items), default=0)
         items = [i for i in items if float(i.get("vlRat") or 0) > 0]
         if items:
             it = max(items, key=lambda i: float(i.get("totArea") or 0))
             return {"용적률": round(float(it["vlRat"]), 1), "건폐율": round(float(it.get("bcRat") or 0), 1),
-                    "대지면적": round(float(it.get("platArea") or 0)), "연면적": round(float(it.get("totArea") or 0))}
+                    "대지면적": round(float(it.get("platArea") or 0)), "연면적": round(float(it.get("totArea") or 0)),
+                    "대장세대수": hh or ""}
     return {"용적률": "없음"}
 
 
@@ -297,6 +328,22 @@ def main():
     deadline = time.time() + float(os.environ.get("MAX_MINUTES") or 1e6) * 60   # 시간 예산 (남은 건 다음 실행)
     save = lambda: write_csv(COMPLEX_CSV, COMPLEX_FIELDS, sorted(existing.values(), key=lambda r: r["단지코드"]))
     kapt = Kapt(service_key)
+    kfields = ("kaptCode", "kapt단지명", "세대수", "동수", "최고층", "사용승인일", "건설사", "난방")
+    added = dropped = 0
+    for r in existing.values():
+        if not r.get("법정동코드"):
+            continue
+        if not r.get("kaptCode"):
+            k, how = match_kapt(r, kapt.by_bjd(r["법정동코드"]))
+            if k:
+                r.update({"kaptCode": k["kaptCode"], "kapt단지명": k["kaptName"], "세대수": k["세대수"], "동수": k["동수"],
+                          "최고층": k["최고층"], "사용승인일": k["사용승인일"], "건설사": k["건설사"], "난방": k["난방"],
+                          "kapt매칭": how})
+                added += 1
+        elif r.get("kapt매칭") == "이름" and len(norm_name(r["아파트명"], r["법정동"])) < 3:
+            r.update({f: "" for f in kfields} | {"kapt매칭": "매칭실패(짧은 이름)"})
+            dropped += 1
+    print(f"K-apt 재매칭: 새로 {added}개, 의심 매칭 해제 {dropped}개")
     for i, c in enumerate(todo, 1):
         if time.time() > deadline:
             save()
