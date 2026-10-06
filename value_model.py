@@ -179,6 +179,29 @@ def commute_table(cx):
     return pd.DataFrame.from_dict(rows, orient="index").astype(float)
 
 
+STAGE_W = {"착공": 0.9, "확정": 0.6, "계획": 0.3}     # 사업 단계별 가중치 (개통되면 현재 가치로 넘어가 제외)
+
+
+def future_station(cx):
+    """미래 가치(F) 중 신규 역: 개통 예정 역과 가까울수록·사업이 진행될수록 높게 (data/future_stations.csv, 직접 관리)
+       점수 = max(exp(−거리/800m) × 단계 가중치) × 100"""
+    path = ROOT / "data" / "future_stations.csv"
+    if not path.exists():
+        return pd.DataFrame(index=cx.index)
+    fs = pd.read_csv(path, encoding="utf-8-sig").dropna(subset=["위도"])
+    la, lo = pd.to_numeric(cx["위도"], errors="coerce"), pd.to_numeric(cx["경도"], errors="coerce")
+    best = pd.DataFrame({"score": 0.0, "name": "", "dist": np.nan}, index=cx.index)
+    for _, r in fs.iterrows():
+        d = np.sqrt(((la - r["위도"]) * 111.0) ** 2 + ((lo - r["경도"]) * 88.2) ** 2) * 1000   # m
+        sc = np.exp(-d / 800) * STAGE_W.get(r["단계"], 0) * (d <= 2000)
+        better = sc > best["score"]
+        best.loc[better, "score"] = sc[better]
+        best.loc[better, "name"] = f"{r['노선']} {r['역']}역 ({r['단계']}, {r['개통예정']})"
+        best.loc[better, "dist"] = d[better].round(0)
+    best["score"] = (best["score"] * 100).round(0)
+    return best
+
+
 def pct(s):
     return s.rank(pct=True)
 
@@ -212,6 +235,10 @@ def main():
     has_xy = pd.to_numeric(cx["위도"], errors="coerce").notna()
     access = (pct(acc(best)[has_xy]) * 100).round(1)
     print(f"③ 접근성({kind}): β={best:.2f}, 시세와 순위상관 {best_r:.2f}")
+
+    fut = future_station(cx)
+    if len(fut.columns):
+        print(f"⑤ 신규 역 호재: 2km 안에 개통 예정 역이 있는 단지 {int((fut['score'] > 0).sum()):,}개")
 
     # ④ 하락 방어력
     g = quarter_index(df)
@@ -247,6 +274,8 @@ def main():
         "보정평당가": (np.exp(price["lp_shrunk"]) * PYEONG).round(0),
         "시세신뢰도": price["confidence"], "최근6개월거래": price["n"],
         "접근성": access.reindex(price.index),
+        **{k: fut[c].reindex(price.index) for k, c in (("신규역점수", "score"), ("신규역", "name"), ("신규역거리m", "dist"))
+           if c in fut},
         **({f"출근_{h}": commute_min[h].reindex(price.index) for h in commute_min.columns}
            if commute_min is not None else {}),
         "낙폭2022": (risk["mdd"] * 100).round(1), "낙폭추정": risk["mdd_est"],

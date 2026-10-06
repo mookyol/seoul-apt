@@ -234,3 +234,13 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .meta { display: none; }
 .tab .meta-line { color: var(--sub); font-size: 12px; text-align: center; padding: 8px 16px 20px; }
 .leaflet-container { font: inherit; }
+/* 📋 종합 리포트 */
+.report h4 { margin: 12px 0 4px; font-size: 14px; color: var(--sub); }
+.rep-top { display: flex; gap: 14px; align-items: center; margin-bottom: 6px; }
+.verdict { min-width: 92px; text-align: center; font-size: 18px; font-weight: 800; padding: 10px 6px; border-radius: 12px;
+  background: var(--bg); line-height: 1.2; }
+.verdict small { display: block; font-size: 12px; font-weight: 600; color: var(--sub); }
+.verdict.down { color: var(--down); background: #dbeafe55; }
+.verdict.up { color: var(--up); background: #fee2e255; }
+.rep-cat td:nth-child(3) { width: 34%; }
+.pbar { display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--brand) var(--v), var(--line) var(--v)); }

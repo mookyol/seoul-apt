@@ -266,21 +266,28 @@ def building(key, bjd, jibun):
         return None
     params = {"serviceKey": key, "sigunguCd": bjd[:5], "bjdongCd": bjd[5:], "platGbCd": "1" if m.group(1) else "0",
               "bun": m.group(2).zfill(4), "ji": (m.group(3) or "0").zfill(4), "numOfRows": 100, "pageNo": 1, "_type": "json"}
+    hh_found = 0
     for op in ("getBrRecapTitleInfo", "getBrTitleInfo"):
         r = requests.get(BLD_URL + op, params=params, timeout=30)
         if r.status_code in (401, 403):
             raise PermissionError("건축물대장 API 미승인")
-        items = ((r.json().get("response", {}).get("body", {}).get("items") or {}) or {}).get("item") or []
+        try:
+            body = r.json()
+        except ValueError:          # 일일 호출 한도 초과 등은 JSON이 아닌 오류 문서로 옴 → 오늘은 여기까지
+            raise PermissionError("건축물대장 API 한도 초과 또는 오류")
+        items = ((body.get("response", {}).get("body", {}).get("items") or {}) or {}).get("item") or []
         items = items if isinstance(items, list) else [items]
         hh = sum(int(float(i.get("hhldCnt") or 0)) for i in items) if op == "getBrTitleInfo" else \
             max((int(float(i.get("hhldCnt") or 0)) for i in items), default=0)
+        hh_found = hh_found or hh
         items = [i for i in items if float(i.get("vlRat") or 0) > 0]
         if items:
             it = max(items, key=lambda i: float(i.get("totArea") or 0))
             return {"용적률": round(float(it["vlRat"]), 1), "건폐율": round(float(it.get("bcRat") or 0), 1),
                     "대지면적": round(float(it.get("platArea") or 0)), "연면적": round(float(it.get("totArea") or 0)),
-                    "대장세대수": hh or ""}
-    return {"용적률": "없음"}
+                    "대장세대수": hh_found or ""}
+    # 1970~80년대 대장은 대지면적·용적률이 비어 있는 경우가 많음 → 세대수만이라도 저장
+    return {"용적률": "없음", "대장세대수": hh_found or ""}
 
 
 def schools(kakao, lat, lon):
@@ -382,7 +389,7 @@ def main():
                 save()
                 print(f"  용적률 {i:,}/{len(need_far):,} 저장", flush=True)
     except PermissionError:
-        print("ℹ️  건축물대장 API 미승인 — 용적률 건너뜀 (공공데이터포털 '국토교통부_건축HUB_건축물대장정보 서비스' 활용신청 시 자동 수집)")
+        print("ℹ️  건축물대장 API 미승인·한도 초과 — 남은 단지는 다음 실행에서 이어서")
 
     # (학교 이름 칸이 비어 있음 = 아직 조회 안 함. 2km 안에 학교가 없으면 "없음"으로 기록)
     need = [r for r in existing.values() if r.get("위도") and (not r.get("학원수1km") or not r.get("고등학교"))]

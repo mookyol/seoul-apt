@@ -805,6 +805,7 @@ async function renderDetail(code) {
       <a href="${roadUrl}" target="_blank" rel="noopener">👀 로드뷰</a>
       <a href="${kakaoUrl}" target="_blank" rel="noopener">🗺️ 카카오맵</a>
     </div>
+    ${reportHTML(i)}
     <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small>${guideLink("ls")}</h3>${i.la ? scoreBars(i)
       : `<div class="note">이 단지의 위치·세대수·학군 정보를 수집 중입니다. 매일 새벽 자동 수집으로 곧 채워집니다.</div>`}</div>
     <div class="stats">
@@ -835,12 +836,6 @@ async function renderDetail(code) {
         <tr><td>거래회전율 (1년 거래÷세대)</td><td>${i.to != null ? i.to + "%" : "–"}</td></tr>
       </table>
       <div class="note">구성: 낙폭 35% · 베타 15% · 전세가율 20% · 입주물량 15% · 회전율 15% (서울 내 백분위). 가중치는 백테스트로 조정 예정.</div></div>` : ""}
-    ${i.fv ? `<div class="card"><h3>⚖️ 모델 적정가${guideLink("fair")} <span class="note">위치·연식·규모·브랜드·역·학군으로 학습 (이 동네는 빼고 예측)</span></h3>
-      <div class="kmsg">모델 적정가 평당 <b>${won(Math.round(i.fv))}</b> vs 보정 시세 <b>${won(Math.round(i.vp))}</b>
-        → <b class="${cls(i.gp)}">${i.gp > 0 ? "모델보다 " + i.gp + "% 비쌈" : "모델보다 " + Math.abs(i.gp) + "% 쌈"}</b></div>
-      ${i.rs ? `<div>가격을 만드는 요인: ${i.rs.map((r) => `<span class="tag">${esc(r)}</span>`).join(" ")}</div>` : ""}
-      <div class="note" style="margin-top:6px">⚠️ 백테스트 결과 '모델보다 싼 단지'가 이후 더 오르지는 않았습니다 (모델이 못 보는 약점 때문에 싼 경우가 많음).
-        매수 신호가 아니라 <b>가격 수준 참고용</b>입니다. <a href="#score">점수 성적표 보기</a></div></div>` : ""}
     ${i.vp ? `<div class="card"><h3>🧹 보정 시세${guideLink("price")} <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
       <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
       ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
@@ -1021,6 +1016,44 @@ function renderJoin() {
   };
 }
 
+// ---------- 📋 종합 리포트 (설계서: 종합 요약 · 관점별 점수 · 미래 가치 · 리스크) ----------
+const VERDICT_NOTE = {
+  "(장기)": "1년 넘게 계속 싼 상태 — 백테스트에서 '오래된 저평가'는 이후 평균보다 덜 올랐습니다 (데이터에 없는 약점 가능성)",
+  "(최근)": "최근 1년 사이 싸진 상태 — 백테스트에서 '함정'은 아니었지만 강한 매수 신호도 아닙니다",
+};
+function reportHTML(i) {
+  if (!i.fv) return "";
+  const m84 = (pp) => pp ? Math.round(pp * 84 / 3.305785 / 100) * 100 : null;     // 평당가(전용) → 84㎡ 환산
+  const base = (i.vd || "").replace(/\(.*\)/, ""), tag = (i.vd || "").match(/\(.*\)/)?.[0];
+  const vcls = base.includes("저평가") ? "down" : base.includes("고평가") ? "up" : "";
+  const catRow = ([k, emoji]) => {
+    const [c, r] = i.cat?.[k] || [];
+    if (c == null) return "";
+    return `<tr><td>${emoji} ${k}</td><td class="${cls(c)}"><b>${c > 0 ? "+" : ""}${c}%</b></td>
+      <td><i class="pbar" style="--v:${r ?? 0}%"></i></td><td>${esc(i.g)} 상위 ${r != null ? Math.max(1, Math.round(100 - r)) : "–"}%</td></tr>`;
+  };
+  const old = i.y && thisYear - i.y >= 30;
+  return `<div class="card report"><h3>📋 종합 리포트${guideLink("report")}</h3>
+    <div class="rep-top">
+      <div class="verdict ${vcls}">${esc(base || "–")}${tag ? `<small>${tag === "(장기)" ? "장기" : "최근"}</small>` : ""}</div>
+      <div><div>적정가 <b>${won(m84(i.fv))}</b> <span class="note">(84㎡ 환산)</span></div>
+        <div>현재 시세 <b>${won(i.p84 ?? m84(i.vp))}</b></div>
+        <div>괴리율 <b class="${cls(i.gp)}">${i.gp > 0 ? "+" : ""}${i.gp}%</b> <span class="note">z ${i.gz ?? "–"} · 1년 변화 ${i.gd != null ? (i.gd > 0 ? "+" : "") + i.gd + "%p" : "–"}</span></div></div>
+    </div>
+    <div class="note">신뢰도 <b>${i.vc ?? "–"}</b> (최근 6개월 거래 · ${esc(i.g)} 모델 오차 ${i.re ?? "–"}%)${tag ? ` · ${VERDICT_NOTE[tag]}` : ""}
+      ${old ? "<br>⚠️ 준공 30년 이상 — 재건축 기대가 가격에 반영돼 모델(건물 기준)이 잘 맞지 않을 수 있습니다." : ""}</div>
+    ${i.cat ? `<h4>관점별 점수 <span class="note">가격 기여도 · ${esc(i.g)} 안 순위</span></h4>
+      <table class="kv rep-cat">${[["교통", "🚇"], ["학군", "🎒"], ["단지", "🏢"], ["위치", "📍"]].map(catRow).join("")}</table>` : ""}
+    <h4>미래 가치</h4>
+    <div>${i.fsn && i.fs > 0 ? `🚄 <b>${esc(i.fsn)}</b> ${dist(i.fsd)} · 신규 역 점수 <b>${i.fs}</b>` : "🚄 2km 안 개통 예정 역 없음"}</div>
+    ${old ? `<div>🏗️ 재건축 연한 도달 (${thisYear - i.y}년)${i.far ? ` · 현재 용적률 <b>${i.far}%</b> ${i.far <= 200 ? "(여력 큼)" : i.far >= 250 ? "(여력 적음)" : ""}` : ""}</div>` : ""}
+    <h4>시장 리스크</h4>
+    <div>${i.dg ? `하락 방어력 <span class="grade g${i.dg}">${i.dg}</span> · 2022 낙폭 ${i.dd != null ? "-" + i.dd + "%" : "–"} · 전세가율 ${i.jr2 ?? i.jr ?? "–"}% · ${esc(i.g)} 2년 내 입주물량 ${i.su ?? "–"}%` : "자료 부족"}</div>
+    ${i.rs ? `<div class="note" style="margin-top:6px">가격을 만드는 요인: ${i.rs.map(esc).join(" · ")}</div>` : ""}
+    <div class="note" style="margin-top:6px">판정은 데이터로 설명되는 가격 대비 위치입니다. 조망·향·소음·내부 상태는 반영되지 않습니다. <a href="#score">성적표</a></div>
+  </div>`;
+}
+
 // ---------- 점수 가이드 ----------
 const GUIDE = [
   ["data", "📦 데이터는 어디서 오나", `
@@ -1085,6 +1118,17 @@ const GUIDE = [
     <div class="note">2022년 이후 준공 등 낙폭 자료가 없거나 고점·저점 거래가 2건 미만이면 같은 구·연식대 평균으로 추정합니다.
       2021~23년 거래 10건 미만은 <b>표본 적음</b>으로 표시합니다. 전세가율 80% 초과는 깡통전세 주의 표시.
       서울 아파트는 토지거래허가구역이라 전세가율은 투자 매력이 아니라 실수요 지지력으로만 해석하세요.</div>`],
+  ["report", "📋 종합 리포트 판정", `
+    <table class="kv"><tr><th>판정</th><th>기준 (괴리 z = 괴리율 ÷ 그 구의 모델 오차)</th></tr>
+      <tr><td>저평가</td><td>z ≤ −1.0</td></tr><tr><td>다소 저평가</td><td>−1.0 ~ −0.5</td></tr><tr><td>적정</td><td>−0.5 ~ +0.5</td></tr>
+      <tr><td>다소 고평가</td><td>+0.5 ~ +1.0</td></tr><tr><td>고평가</td><td>≥ +1.0</td></tr></table>
+    <div><b>(장기)</b>: 1년 전에도 비슷하게 싸던 단지 — 백테스트에서 이후 성과가 평균보다 낮았습니다(데이터에 없는 약점 가능성).
+      <b>(최근)</b>: 최근 1년 사이 5%p 이상 싸진 단지.</div>
+    <div>신뢰도: 최근 6개월 거래 5건 이상이고 구 모델 오차 30% 미만이면 높음, 2건 이상이면 보통.</div>
+    <div>관점별 점수: AI 모델이 계산한 각 관점의 <b>가격 기여도</b>(평균 단지 대비 몇 % 올리거나 내리나)와 같은 구 단지들 중 순위.
+      교통 = 역 거리·노선·출근 시간·업무지구 거리 / 학군 = 초등학교·학원가 / 단지 = 세대수·연식·브랜드 / 위치 = 그 밖의 지역 프리미엄.</div>
+    <div>미래 가치(신규 역): 개통 예정 역과의 거리와 사업 단계로 점수화 — exp(−거리/800m) × 단계 가중치(착공 0.9 · 확정 0.6 · 계획 0.3).
+      역 목록은 GTX-A·B·C, 위례신사선, 면목선, 서부선 등 공식 발표 기준으로 직접 관리합니다.</div>`],
   ["fair", "⚖️ 모델 적정가", `
     <div>2019년 이후 정제된 거래로 <b>AI 모델(LightGBM)</b>이 "위치·연식·면적·층·세대수·역·학교·학원·브랜드·업무지구 거리 → 가격" 관계를 학습합니다.</div>
     <div>단지의 적정가는 <b>그 단지가 있는 동네(법정동)를 빼고 학습한 모델</b>로 예측합니다 — 모델이 그 단지 가격을 외워버리는 것을 막기 위해서입니다.</div>

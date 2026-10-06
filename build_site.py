@@ -91,6 +91,14 @@ def value_fields(v):
               if f(f"출근_{COMMUTE_HUBS[0]}") is not None else None,              # 업무지구별 대중교통 출근 분
         "fv": f("적정평당가"), "gp": f("괴리율"),                                # ② 모델 적정가, 괴리율 %
         "rs": v["가격이유"].split("|") if v.get("가격이유") else None,          # 가격 이유 TOP3
+        # 리포트: 판정·z점수·1년 괴리 변화·신뢰도·지역 오차
+        "vd": v.get("판정") if v.get("판정") not in (None, "", "nan") else None,
+        "gz": f("괴리z"), "gd": f("괴리변화"), "vc": v.get("판정신뢰도") or None, "re": f("지역오차"),
+        # 관점별 [가격 기여 %, 구 안 백분위]
+        "cat": {c: [f(f"기여_{c}"), f(f"구순위_{c}")] for c in ("교통", "학군", "단지", "위치")}
+               if f("기여_교통") is not None else None,
+        # 미래 가치: 개통 예정 역
+        "fs": f("신규역점수"), "fsn": v.get("신규역") or None, "fsd": f("신규역거리m"),
     }
 
 

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold
 
-from fair_value import FEATURES, PARAMS, complex_features
+from fair_value import BASE_FEATURES as FEATURES, PARAMS, complex_features
 from value_model import floor_adjust, load_trades
 
 ROOT = Path(__file__).parent
@@ -53,12 +53,21 @@ def main():
         ref = pd.DataFrame({"log_area": base.groupby("단지코드")["log_area"].median()}).join(cxf)
         ref["age"] = T.year - tr.groupby("단지코드")["by"].median().reindex(ref.index)
         ref["floor_rel"], ref["t"] = 0.5, int(tr["t"].max())
+        # 1년 전 시점의 괴리율도 같은 모델로 (시점 변수 t만 1년 전으로) → "최근 새로 생긴 괴리" = 지금 괴리 − 1년 전 괴리
+        prev_w = tr[(tr["date"] > T - pd.DateOffset(months=18)) & (tr["date"] <= T - pd.DateOffset(months=12))]
+        lp_p = prev_w.groupby("단지코드")["lp"].median()
+        refp = ref.copy()
+        refp["t"] = int(tr["t"].max()) - 12
+        refp["age"] = ref["age"] - 1
         pred = pd.Series(np.nan, index=ref.index)
+        pred_p = pd.Series(np.nan, index=ref.index)
         for tr_i, va_i in GroupKFold(5).split(tr, groups=groups):
             m = lgb.train(PARAMS, lgb.Dataset(tr[FEATURES].iloc[tr_i], tr["y"].iloc[tr_i]), ROUNDS)
             sel = ref["dong"].isin(set(groups.iloc[va_i]))
             pred[sel] = m.predict(ref.loc[sel, FEATURES])
-        d = pd.DataFrame({"gap": lp_t - pred, "fwd": now_lp - lp_t, "n": n_t}).dropna()
+            pred_p[sel] = m.predict(refp.loc[sel, FEATURES])
+        gap_p = (lp_p - pred_p).reindex(ref.index)
+        d = pd.DataFrame({"gap": lp_t - pred, "dgap": (lp_t - pred) - gap_p, "fwd": now_lp - lp_t, "n": n_t}).dropna(subset=["gap", "fwd"])
         d = d[d["n"] >= 3]                                   # 기준 시점 시세가 3건 이상인 단지만
         rho = d[["gap", "fwd"]].corr(method="spearman").iloc[0, 1]
 
@@ -66,6 +75,7 @@ def main():
         prev = tr[(tr["date"] > T - pd.DateOffset(months=18)) & (tr["date"] <= T - pd.DateOffset(months=12))]
         f = pd.DataFrame({
             "적정가 괴리율": d["gap"],
+            "괴리율 변화(최근 1년)": d["dgap"],
             "직전 1년 상승률(모멘텀)": lp_t - prev.groupby("단지코드")["lp"].median(),
             "가격 수준(평당가)": lp_t,
             "단지 규모(세대수)": cxf["households"],
@@ -77,9 +87,17 @@ def main():
         factors = {k: round(float(f[k].corr(d["fwd"], method="spearman")), 3) for k in f}
         d["q"] = pd.qcut(d["gap"], 5, labels=["저평가 20%", "하위 20~40%", "중간", "상위 20~40%", "고평가 20%"])
         by_q = (np.expm1(d.groupby("q", observed=True)["fwd"].mean()) * 100).round(1).to_dict()
+        # 2×2: 지금 싼가(괴리율 하위 40%) × 최근 1년 새로 싸졌나(괴리 변화 하위 40%)
+        dd = d.dropna(subset=["dgap"])
+        cheap, newly = dd["gap"] <= dd["gap"].quantile(0.4), dd["dgap"] <= dd["dgap"].quantile(0.4)
+        grid = {name: round(float(np.expm1(dd.loc[mask, "fwd"].mean()) * 100), 1) for name, mask in {
+            "새로 싸진 저평가": cheap & newly, "오래된 저평가": cheap & ~newly,
+            "새로 싸짐(저평가 아님)": ~cheap & newly, "그 외": ~cheap & ~newly}.items() if mask.sum() >= 20}
+        grid["전체 평균"] = round(float(np.expm1(dd["fwd"].mean()) * 100), 1)
         years = round((end - T).days / 365, 1)
         results.append({"cutoff": cut, "years": years, "n": len(d), "spearman": round(float(rho), 3),
-                        "quintile_return_pct": by_q, "factors": factors})
+                        "quintile_return_pct": by_q, "factors": factors, "new_gap_grid": grid})
+        print("   새로 생긴 괴리 2×2:", grid)
         print(f"기준 {cut} → 이후 {years}년, 단지 {len(d):,}개 | 괴리율 순위상관 {rho:+.3f} | 분위별 상승률 {by_q}")
         print("   요인별 순위상관:", factors)
 
