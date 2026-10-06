@@ -362,3 +362,8 @@ body.has-cmp .legend { bottom: 70px; }
 .rg-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 6px; }
 .rg-foot > div { background: var(--bg); border-radius: 10px; padding: 6px 10px; font-size: 11px; color: var(--sub); }
 .rg-foot b { display: block; font-size: 15px; color: var(--text); }
+
+.mp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.mp-x { border: 0; background: none; font-size: 18px; color: var(--sub); cursor: pointer; padding: 2px 6px; }
+.mp-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
+.map-panel { max-height: calc(100% - 70px); overflow-y: auto; z-index: 650; }

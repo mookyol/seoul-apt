@@ -44,6 +44,7 @@
     </div>
     <div class="m-sugg" id="m-sugg" hidden></div>
     <div class="map-ctl map-panel" id="mq-panel" hidden>
+      <div class="mp-head"><b>🔎 지도 필터</b><button class="mp-x" data-close-panel aria-label="닫기">✕</button></div>
       <label>보기 <select id="mq-view"><option value="">모든 단지</option><option value="both">⭐👥 관심단지만</option>
         <option value="fav">⭐ 내 관심만</option><option value="group">👥 그룹 관심만</option></select></label>
       <label>세대수 <select id="mq-hh"><option value="">전체</option><option value="300">300세대+</option>
@@ -59,9 +60,10 @@
       <label>하락방어 <select id="mq-dg"><option value="">전체</option><option value="A">A만</option><option value="AB">B 이상</option></select></label>
       <label class="chk"><input type="checkbox" id="mq-recent"> 최근 1년 거래 있는 단지만</label>
       <label class="chk"><input type="checkbox" id="mq-small"> 소형·정보부족 단지도 보기</label>
-      <button class="chip" id="mq-reset">초기화</button>
+      <div class="mp-btns"><button class="chip" id="mq-reset">초기화</button><button class="chip on" data-close-panel>적용하고 닫기</button></div>
     </div>
     <div class="map-ctl map-panel" id="m-panel" hidden>
+      <div class="mp-head"><b>⚙️ 지도 설정</b><button class="mp-x" data-close-panel aria-label="닫기">✕</button></div>
       <label class="chk"><input type="checkbox" id="m-filter"> 순위 탭 필터를 지도에도 적용</label>
       <label class="chk"><input type="checkbox" id="m-favpin" checked> ⭐👥 관심단지 핀 표시</label>
       <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정 표시</label>

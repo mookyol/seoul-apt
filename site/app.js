@@ -186,7 +186,7 @@ async function init() {
   $("#m-base").addEventListener("change", () => { store.set("mbase", $("#m-base").value); setBase($("#m-base").value); });
   $("#m-label").value = store.get("mlabel", "p84");
   $("#m-label").addEventListener("change", () => { store.set("mlabel", $("#m-label").value); updateBubbles(); });
-  $("#m-more").addEventListener("click", () => { $("#m-panel").hidden = !$("#m-panel").hidden; $("#mq-panel").hidden = true; });
+  $("#m-more").addEventListener("click", () => { placePanel($("#m-panel")); $("#m-panel").hidden = !$("#m-panel").hidden; $("#mq-panel").hidden = true; });
   $("#m-filter").addEventListener("change", drawMarkers);
   $("#m-price").addEventListener("click", () => setPriceMode(!priceOn()));
   $("#m-price").textContent = priceOn() ? "💰 가격 ON" : "💰 가격 OFF";
@@ -197,11 +197,17 @@ async function init() {
   const mqSave = () => store.set("mq", Object.fromEntries(MQ.map((id) => [id, $("#" + id).type === "checkbox" ? $("#" + id).checked : $("#" + id).value])));
   for (const [id, v] of Object.entries(store.get("mq", {}))) if ($("#" + id)) $("#" + id)[typeof v === "boolean" ? "checked" : "value"] = v;
   MQ.forEach((id) => $("#" + id).addEventListener("change", () => { mqSave(); quickCount(); drawMarkers(); }));
-  $("#m-qbtn").addEventListener("click", () => { $("#mq-panel").hidden = !$("#mq-panel").hidden; $("#m-panel").hidden = true; });
+  // 패널은 버튼 줄 바로 아래에 (폰에서 버튼이 두 줄로 접혀도 가리지 않게)
+  const placePanel = (p) => { const c = $("#tab-map .map-ctl"); p.style.top = c.offsetTop + c.offsetHeight + 6 + "px"; };
+  $("#m-qbtn").addEventListener("click", () => { placePanel($("#mq-panel")); $("#mq-panel").hidden = !$("#mq-panel").hidden; $("#m-panel").hidden = true; });
   $("#mq-reset").addEventListener("click", () => {
     MQ.filter((id) => id !== "m-favpin").forEach((id) => ($("#" + id).type === "checkbox" ? ($("#" + id).checked = false) : ($("#" + id).value = "")));
     mqSave(); quickCount(); drawMarkers();
   });
+  // 패널 닫기: ✕ / 적용하고 닫기 / 지도 빈 곳 누르기 / Esc
+  const closePanels = () => { $("#mq-panel").hidden = $("#m-panel").hidden = true; };
+  $$("[data-close-panel]").forEach((b) => b.addEventListener("click", closePanels));
+  document.addEventListener("keydown", (e) => e.key === "Escape" && closePanels());
   quickCount();
   $("#f-small").addEventListener("change", () => { renderList(); $("#m-filter").checked && drawMarkers(); });
   $$("#tab-list .filters select").forEach((sel) => sel.addEventListener("change", () => $("#m-filter").checked && drawMarkers()));
@@ -333,6 +339,7 @@ function initMap() {
   drawMarkers();
   loadOverlays();
   state.map.on("zoomend", onZoom);
+  state.map.on("click", () => { $("#mq-panel").hidden = $("#m-panel").hidden = true; });   // 지도 빈 곳 누르면 패널 닫기
   state.map.on("moveend", () => state.map.getZoom() >= BUBBLE_ZOOM && updateBubbles());
 }
 // 지하철 노선·역 데이터 (지도 레이어 + 역 기반 검색 공용, 한 번만 받음)
