@@ -258,3 +258,16 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .peek-links { display: flex; gap: 6px; margin-top: 8px; }
 .peek-links a { flex: 1; text-align: center; padding: 7px 4px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line, #ddd);
   color: var(--text); text-decoration: none; font-size: 13px; font-weight: 600; }
+
+/* 지도 탭 검색 결과 */
+.m-sugg { position: absolute; left: 10px; right: 10px; top: 52px; z-index: 700; background: var(--card); border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.2); max-height: 55%; overflow-y: auto; padding: 4px; }
+.m-sugg button { display: block; width: 100%; text-align: left; padding: 10px 12px; border: 0; background: none; color: var(--text);
+  border-bottom: 1px solid var(--line); font-size: 14px; }
+.m-sugg button:last-child { border-bottom: 0; }
+.m-sugg small { color: var(--sub); }
+.m-sugg .note { padding: 10px 12px; }
+
+.cm-tys { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.cm-ty { font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; }
+#cm-sort { margin: 8px 16px 0; }

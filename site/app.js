@@ -141,8 +141,8 @@ async function init() {
     if ($("#tab-supply").classList.contains("active")) return renderSupply();   // 청약 탭에서는 청약 공고 검색
     if ($("#tab-map").classList.contains("active")) {
       const stq = stationQuery();
-      if (stq) showStationOnMap(stq);
-      return;   // 지도 탭에서는 입력 중(한글 조합 중간 글자 포함) 탭을 바꾸지 않음 — 단지명은 엔터로 목록 이동
+      if (stq) { $("#m-sugg").hidden = true; showStationOnMap(stq); } else mapSuggest();
+      return;   // 지도 탭에서는 입력 중(한글 조합 중간 글자 포함) 탭을 바꾸지 않음
     }
     if (!$("#tab-list").classList.contains("active")) showTab("list");
     renderList();
@@ -150,7 +150,8 @@ async function init() {
   $("#q").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing || !$("#tab-map").classList.contains("active")) return;
     const stq = stationQuery();
-    if (stq) showStationOnMap(stq); else { showTab("list"); renderList(); }
+    if (stq) showStationOnMap(stq);
+    else { const first = $("#m-sugg [data-c], #m-sugg [data-st]"); first?.click(); }
     $("#q").blur();
   });
   $$("#sub-seg button").forEach((b) => b.addEventListener("click", () => {
@@ -228,6 +229,7 @@ function saveFilters() {
 }
 
 function showTab(name) {
+  if ($("#m-sugg")) $("#m-sugg").hidden = true;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + name));
   $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   store.set("tab", name);
@@ -529,7 +531,34 @@ async function renderSupply() {
   const q = $("#q").value.trim().toLowerCase();
   const match = (s) => !q || [s.n, s.g, s.a].some((x) => x && x.toLowerCase().includes(q));
 
-  if (view === "move") {   // 입주 예정: 일반분양 공고 기준 (무순위는 같은 단지라 제외)
+  if (view === "cmpet") {   // 마감된 일반분양의 경쟁률 · 당첨가점 (1순위 해당지역)
+    const sort = store.get("cmSort", "date");
+    const xs = subs.filter((s) => s.k === "APT" && (s.cm != null || s.sc != null) && match(s));
+    xs.sort(sort === "cm" ? (a, b) => (b.cm ?? -1) - (a.cm ?? -1)
+      : sort === "sc" ? (a, b) => (b.sc ?? -1) - (a.sc ?? -1)
+      : (a, b) => (b.dt.모집공고일 || "").localeCompare(a.dt.모집공고일 || ""));
+    const since = new Date(Date.now() - 365 * 86400e3).toISOString().slice(0, 10);
+    const y1 = xs.filter((s) => (s.dt.모집공고일 || "") >= since);
+    const med = (a) => { a = a.filter((v) => v != null).sort((p, q) => p - q); return a.length ? a[Math.floor(a.length / 2)] : null; };
+    const typeRow = (s) => s.tyc ? Object.entries(s.tyc).filter(([, v]) => v[0] != null || v[1] != null)
+      .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+      .map(([ty, [c, lo]]) => `<span class="cm-ty">${Math.round(parseFloat(ty))}㎡ <b>${c != null ? c + ":1" : "–"}</b>${lo ? ` · ${lo}점` : ""}</span>`).join("") : "";
+    $("#supply").innerHTML = `
+      <div class="card"><h3>🔥 최근 1년 서울 일반분양 (${y1.length}건)</h3>
+        <div class="kmsg">경쟁률 중간값 <b>${med(y1.map((s) => s.cm)) ?? "–"} : 1</b> · 최저 당첨가점 중간값 <b>${med(y1.map((s) => s.sc)) ?? "–"}점</b></div>
+        <div class="note">1순위 해당지역(서울 거주) 기준 · 최고 경쟁률 타입과 최저 당첨가점입니다. 가점 84점 만점.</div></div>
+      <div class="seg" id="cm-sort">${[["date", "최근 순"], ["cm", "경쟁률 높은 순"], ["sc", "가점 높은 순"]]
+        .map(([v, l]) => `<button data-v="${v}" class="${sort === v ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="count">${xs.length}건</div>
+      <ol class="list">${xs.slice(0, 200).map((s) => `
+        <li class="item" data-s="${esc(subKey(s))}"><div class="main">
+          <div class="name">${esc(s.n)}</div>
+          <div class="sub">${esc(s.g)} · 공고 ${s.dt.모집공고일 || "?"} · ${s.h.toLocaleString()}세대
+            <br>🔥 최고 <b>${s.cm ?? "–"} : 1</b> · 최저 가점 <b>${s.sc ?? "–"}점</b>
+            ${typeRow(s) ? `<div class="cm-tys">${typeRow(s)}</div>` : ""}</div></div></li>`).join("") ||
+        '<div class="empty">경쟁률 결과가 있는 공고가 없습니다</div>'}</ol>`;
+    $$("#cm-sort button").forEach((b) => (b.onclick = () => { store.set("cmSort", b.dataset.v); renderSupply(); }));
+  } else if (view === "move") {   // 입주 예정: 일반분양 공고 기준 (무순위는 같은 단지라 제외)
     const ym0 = t.slice(0, 4) + t.slice(5, 7);
     const xs = subs.filter((s) => s.k === "APT" && s.mv >= ym0 && match(s));
     const byGu = {}, years = {};
@@ -784,6 +813,30 @@ function setListView(v) {
   renderList();
 }
 
+// 지도 탭 검색: 지도 위에 맞는 역·단지 목록을 띄우고, 누르면 그 위치로 이동
+function mapSuggest() {
+  const box = $("#m-sugg");
+  const raw = $("#q").value.trim().toLowerCase();
+  const q = raw.replace(/\s+/g, "").replace(/역$/, "");
+  if (!q || /^[ㄱ-ㅎㅏ-ㅣ]+$/.test(q)) { box.hidden = true; return; }
+  const sts = state.stationIdx ? Object.keys(state.stationIdx).filter((n) => n.startsWith(q)).slice(0, 3) : [];
+  const words = raw.split(/\s+/).filter(Boolean);
+  const hay = (i) => (i._hay ??= [i.n, i.al, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
+  const cx = state.items.filter((i) => i.la && words.every((w) => hay(i).includes(w)))
+    .sort((a, b) => (b.n.toLowerCase().startsWith(words[0]) - a.n.toLowerCase().startsWith(words[0])) || (b.h ?? 0) - (a.h ?? 0)).slice(0, 8);
+  box.innerHTML = sts.map((n) => `<button data-st="${esc(n)}">🚇 <b>${esc(n)}역</b></button>`).join("") +
+    cx.map((i) => `<button data-c="${esc(i.c)}">🏢 <b>${esc(i.n)}</b> <small>${esc(i.g)} ${esc(i.d)}${i.h ? " · " + i.h.toLocaleString() + "세대" : ""}</small></button>`).join("") ||
+    `<div class="note">"${esc(raw)}"에 맞는 역·단지가 없습니다</div>`;
+  box.hidden = false;
+  $$("#m-sugg [data-st]").forEach((b) => (b.onclick = () => { $("#q").value = b.dataset.st + "역"; box.hidden = true; showStationOnMap(stationQuery()); }));
+  $$("#m-sugg [data-c]").forEach((b) => (b.onclick = () => {
+    const i = state.byCode[b.dataset.c];
+    box.hidden = true; $("#q").blur();
+    state.map.invalidateSize();
+    state.map.setView([i.la, i.lo], Math.max(state.map.getZoom(), 16));
+    showPeek(i);
+  }));
+}
 // 역을 지도 가운데로 옮기고 반경 원 + 역 이름 표시
 function showStationOnMap(stq) {
   state.map.invalidateSize();   // 폰 키보드가 열리고 닫히며 지도 크기가 바뀐 경우 대비
