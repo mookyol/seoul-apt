@@ -949,6 +949,7 @@ function route() {
 function closeSheet() {
   $("#sheet").hidden = $("#sheet-bg").hidden = true;
   for (const k of ["chart", "cmpChart"]) if (state[k]) { state[k].destroy(); state[k] = null; }
+  (state.repCharts || []).forEach((c) => c.destroy()); state.repCharts = [];
 }
 function openSheet(html) {
   closeSheet();
@@ -1054,6 +1055,7 @@ async function renderDetail(code) {
   renderRemarks(code);
 
   const d = await getDetail(code);
+  drawReport(i, d);
   $("#trades").innerHTML = "<tr><th>계약일</th><th>전용</th><th>층</th><th>거래가</th></tr>" +
     d.trades.map(([dt, a, f, p]) => `<tr><td>${dt}</td><td>${a}㎡</td><td>${f}</td><td>${won(p)}</td></tr>`).join("");
   $("#near").innerHTML = d.near?.length ? "<tr><th>단지</th><th>거리</th><th>평당가</th><th>3년</th><th>전세가율</th></tr>" +
@@ -1198,37 +1200,135 @@ const VERDICT_NOTE = {
   "(장기)": "1년 넘게 계속 싼 상태 — 백테스트에서 '오래된 저평가'는 이후 평균보다 덜 올랐습니다 (데이터에 없는 약점 가능성)",
   "(최근)": "최근 1년 사이 싸진 상태 — 백테스트에서 '함정'은 아니었지만 강한 매수 신호도 아닙니다",
 };
+// 서울 전체 백분위 (0~100, 높을수록 유리) — 정렬 배열을 한 번만 만들어 이진 탐색
+function seoulPct(key, v, lowerBetter = false) {
+  if (v == null) return null;
+  const a = ((state.pctCache ??= {})[key] ??= state.items.map((x) => x[key]).filter((x) => x != null).sort((p, q) => p - q));
+  let lo = 0, hi = a.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; a[m] < v ? (lo = m + 1) : (hi = m); }
+  const below = lo / a.length * 100;
+  return Math.round(lowerBetter ? 100 - below : below);
+}
+const RADAR_AXES = [["출근", "ac"], ["단지 규모", "h"], ["학원가", "a1"], ["초등학교", "em", true], ["역 거리", "sd", true], ["하락 방어", "df"]];
+
 function reportHTML(i) {
-  if (!i.fv) return "";
   const m84 = (pp) => pp ? Math.round(pp * 84 / 3.305785 / 100) * 100 : null;     // 평당가(전용) → 84㎡ 환산
   const base = (i.vd || "").replace(/\(.*\)/, ""), tag = (i.vd || "").match(/\(.*\)/)?.[0];
-  const vcls = base.includes("저평가") ? "down" : base.includes("고평가") ? "up" : "";
-  const catRow = ([k, emoji]) => {
-    const [c, r] = i.cat?.[k] || [];
-    if (c == null) return "";
-    return `<tr><td>${emoji} ${k}</td><td class="${cls(c)}"><b>${c > 0 ? "+" : ""}${c}%</b></td>
-      <td><i class="pbar" style="--v:${r ?? 0}%"></i></td><td>${esc(i.g)} 상위 ${r != null ? Math.max(1, Math.round(100 - r)) : "–"}%</td></tr>`;
-  };
+  const stamp = base.includes("저평가") ? "🔵" : base.includes("고평가") ? "🔴" : "⚖️";
   const old = i.y && thisYear - i.y >= 30;
-  return `<div class="card report"><h3>📋 종합 리포트${guideLink("report")}</h3>
-    <div class="rep-top">
-      <div class="verdict ${vcls}">${esc(base || "–")}${tag ? `<small>${tag === "(장기)" ? "장기" : "최근"}</small>` : ""}</div>
-      <div><div>적정가 <b>${won(m84(i.fv))}</b> <span class="note">(84㎡ 환산)</span></div>
-        <div>현재 시세 <b>${won(i.p84 ?? m84(i.vp))}</b></div>
-        <div>괴리율 <b class="${cls(i.gp)}">${i.gp == null ? "–" : (i.gp > 0 ? "+" : "") + i.gp + "%"}</b> <span class="note">z ${i.gz ?? "–"} · 1년 변화 ${i.gd != null ? (i.gd > 0 ? "+" : "") + i.gd + "%p" : "–"}</span></div></div>
+  const axes = RADAR_AXES.map(([l, k, low]) => [l, seoulPct(k, i[k], low)]);
+  const chips = [
+    ...axes.filter(([, p]) => p != null && p >= 80).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([l, p]) => `<span class="rchip g">💪 ${l} 서울 상위 ${Math.max(1, 100 - p)}%</span>`),
+    ...axes.filter(([, p]) => p != null && p <= 30).map(([l]) => `<span class="rchip w">⚠️ ${l} 약함</span>`),
+  ];
+  // B. 적정가 게이지: 적정가 ± 구 모델 오차를 초록 구간으로
+  let gauge = "";
+  if (i.fv && i.vp && i.re) {
+    const lo = i.fv * (1 - i.re / 100), hi = i.fv * (1 + i.re / 100);
+    const L = Math.min(lo, i.vp) * 0.93, R = Math.max(hi, i.vp) * 1.05, pos = (v) => ((v - L) / (R - L) * 100).toFixed(1) + "%";
+    gauge = `<div class="rcard"><h4>⚖️ 지금 가격은 적정한가</h4>
+      <div class="bullet"><div class="band" style="left:${pos(lo)};width:calc(${pos(hi)} - ${pos(lo)})"></div>
+        <div class="fair" style="left:${pos(i.fv)}"><span>적정 ${won(m84(i.fv))}</span></div>
+        <div class="now ${i.gp > 0 ? "up" : "down"}" style="left:${pos(i.vp)}"><span>지금 ${won(i.p84 ?? m84(i.vp))}</span></div></div>
+      <div class="bscale"><span>◀ 싸다</span><span>초록 = 모델 오차 범위 (±${i.re}%)</span><span>비싸다 ▶</span></div>
+      <div class="note">84㎡ 환산 · 괴리 <b class="${cls(i.gp)}">${i.gp > 0 ? "+" : ""}${i.gp}%</b>${i.gd != null ? ` · 1년 변화 ${i.gd > 0 ? "+" : ""}${i.gd}%p` : ""}
+        · 신뢰도 ${i.vc ?? "–"}${tag ? `<br>${VERDICT_NOTE[tag]}` : ""}<br>※ 백테스트상 "싸다"가 곧 매수 신호는 아닙니다. ${guideLink("report")}</div></div>`;
+  }
+  const facs = i.cat ? [["📍 위치", "위치"], ["🚇 교통", "교통"], ["🏢 단지", "단지"], ["🎒 학군", "학군"]].filter(([, k]) => i.cat[k]?.[0] != null) : [];
+  const fmax = Math.max(30, ...facs.map(([, k]) => Math.abs(i.cat[k][0])));
+  const ct = i.ct ? i.ct.map((m, k) => [HUB_NAMES[k], m]).filter(([, m]) => m != null).sort((a, b) => a[1] - b[1]) : [];
+  const cmax = Math.max(...ct.map(([, m]) => m), 1);
+  const future = [
+    i.fsn && i.fs > 0 ? `<span class="rchip g">🚄 ${esc(i.fsn)} ${dist(i.fsd)}</span>` : "",
+    old ? `<span class="rchip">🏗️ 재건축 연한 (${thisYear - i.y}년)${i.far ? ` · 용적률 ${i.far}%` : ""}</span>` : "",
+    i.su != null ? `<span class="rchip ${i.su >= 5 ? "w" : ""}">🏘️ ${esc(i.g)} 2년 입주물량 ${i.su}%</span>` : "",
+    i.vt != null ? `<span class="rchip ${i.vt <= -20 ? "w" : i.vt >= 20 ? "g" : ""}">📊 거래량 ${i.vt > 0 ? "+" : ""}${i.vt}% (1년)</span>` : "",
+    i.jr != null ? `<span class="rchip">🔑 전세가율 ${i.jr}%</span>` : "",
+  ].join("");
+
+  return `<div class="report-v" id="report-v">
+    <div class="rhero">
+      <div class="rtag">📋 단지 리포트 · ${state.meta.dataTo?.slice(0, 7) ?? ""}</div>
+      <div class="rname">${esc(i.n)}</div>
+      <div class="raddr">${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}${i.st ? ` · 🚇 ${esc(i.st.split(" ")[0])} ${dist(i.sd)}` : ""}</div>
+      ${base ? `<div class="rverdict"><span class="stamp">${stamp}</span><div><b>${esc(base)}</b> ${tag ? `<small>${tag}</small>` : ""}
+        <div class="rsub">모델 적정가 대비 ${i.gp > 0 ? "+" : ""}${i.gp}% · 신뢰도 ${i.vc ?? "–"}</div></div></div>` : ""}
+      <div class="rkpis">
+        <div><small>84㎡ 시세</small><b>${i.p84 ? (i.p84 >= 10000 ? (i.p84 / 10000).toFixed(1) + "억" : won(i.p84)) : "–"}</b></div>
+        <div><small>1년</small><b>${pct(i.r1)}</b></div>
+        <div><small>3년</small><b>${pct(i.r3)}</b></div>
+        <div><small>하락방어</small><b>${i.dg ? `<span class="grade g${i.dg}">${i.dg}</span>` : "–"}</b></div>
+      </div>
     </div>
-    <div class="note">신뢰도 <b>${i.vc ?? "–"}</b> (최근 6개월 거래 · ${esc(i.g)} 모델 오차 ${i.re ?? "–"}%)${tag ? ` · ${VERDICT_NOTE[tag]}` : ""}
-      ${old ? "<br>⚠️ 준공 30년 이상 — 재건축 기대가 가격에 반영돼 모델(건물 기준)이 잘 맞지 않을 수 있습니다." : ""}</div>
-    ${i.cat ? `<h4>관점별 점수 <span class="note">가격 기여도 · ${esc(i.g)} 안 순위</span></h4>
-      <table class="kv rep-cat">${[["교통", "🚇"], ["학군", "🎒"], ["단지", "🏢"], ["위치", "📍"]].map(catRow).join("")}</table>` : ""}
-    <h4>미래 가치</h4>
-    <div>${i.fsn && i.fs > 0 ? `🚄 <b>${esc(i.fsn)}</b> ${dist(i.fsd)} · 신규 역 점수 <b>${i.fs}</b>` : "🚄 2km 안 개통 예정 역 없음"}</div>
-    ${old ? `<div>🏗️ 재건축 연한 도달 (${thisYear - i.y}년)${i.far ? ` · 현재 용적률 <b>${i.far}%</b> ${i.far <= 200 ? "(여력 큼)" : i.far >= 250 ? "(여력 적음)" : ""}` : ""}</div>` : ""}
-    <h4>시장 리스크</h4>
-    <div>${i.dg ? `하락 방어력 <span class="grade g${i.dg}">${i.dg}</span> · 2022 낙폭 ${i.dd != null ? "-" + i.dd + "%" : "–"} · 전세가율 ${i.jr2 ?? i.jr ?? "–"}% · ${esc(i.g)} 2년 내 입주물량 ${i.su ?? "–"}%` : "자료 부족"}</div>
-    ${i.rs ? `<div class="note" style="margin-top:6px">가격을 만드는 요인: ${i.rs.map(esc).join(" · ")}</div>` : ""}
-    <div class="note" style="margin-top:6px">판정은 데이터로 설명되는 가격 대비 위치입니다. 조망·향·소음·내부 상태는 반영되지 않습니다. <a href="#score">성적표</a></div>
-  </div>`;
+    <div class="rcard"><h4>🕸️ 입지 프로필 <span class="note">서울 전체 대비 · 점선 = 서울 중간</span></h4>
+      <div class="rchart"><canvas id="rep-radar"></canvas></div>
+      ${chips.length ? `<div class="rchips">${chips.join("")}</div>` : ""}</div>
+    ${gauge}
+    <div class="rcard"><h4>📈 가격 흐름 vs ${esc(i.g)} <span class="note">평당가 · 회색 = ${esc(i.g)} 500세대+ 중앙값</span></h4>
+      <div class="rchart short"><canvas id="rep-trend"></canvas></div>
+      ${i.dd != null ? `<div class="note">'22 하락 때 고점 대비 <b class="down">-${i.dd}%</b>${i.de ? " (표본 적음)" : ""}</div>` : ""}</div>
+    ${facs.length ? `<div class="rcard"><h4>🧩 이 가격을 만드는 요인 <span class="note">서울 평균 대비 · ${esc(i.g)} 안 순위</span></h4>
+      ${facs.map(([l, k]) => { const [v, r] = i.cat[k], w = Math.abs(v) / fmax * 72;
+        return `<div class="rfac"><span>${l}</span><div class="trk"><i style="${v >= 0 ? `left:28%;width:${w}%` : `right:72%;width:${Math.max(w, 1)}%`}" class="${v >= 0 ? "pos" : "neg"}"></i></div>
+          <b class="${cls(v)}">${v > 0 ? "+" : ""}${v}%</b><small>상위 ${r != null ? Math.max(1, Math.round(100 - r)) : "–"}%</small></div>`; }).join("")}</div>` : ""}
+    ${ct.length ? `<div class="rcard"><h4>🚇 출근 시간 <span class="note">대중교통 · 🟢30분 🟡45분 🔴그 이상</span></h4>
+      ${ct.map(([h, m]) => `<div class="rhub"><span>${h}</span><div><i style="width:${m / cmax * 100}%" class="${m <= 30 ? "g" : m <= 45 ? "y" : "r"}"></i></div><b>${m}분</b></div>`).join("")}</div>` : ""}
+    ${future ? `<div class="rcard"><h4>🔮 앞으로 볼 것</h4><div class="rchips">${future}</div></div>` : ""}
+    ${old ? `<div class="note rnote">⚠️ 준공 30년 이상 — 재건축 기대가 가격에 반영돼 적정가 모델(건물 기준)이 잘 맞지 않을 수 있습니다.</div>` : ""}
+    <div class="note rnote">데이터로 설명되는 가격 대비 위치입니다. 조망·향·소음·내부 상태는 반영되지 않습니다. · 서울 아파트 입지</div>
+  </div>
+  <button class="btn sub rsave" id="rep-save" data-html2canvas-ignore>🖼️ 리포트 이미지로 저장 · 공유</button>`;
+}
+
+// 리포트 차트 (레이더 · 가격 흐름) — 상세 데이터(d)를 받은 뒤 그림
+async function drawReport(i, d) {
+  (state.repCharts || []).forEach((c) => c.destroy());
+  state.repCharts = [];
+  const tc = chartColors();
+  if ($("#rep-radar")) {
+    const axes = RADAR_AXES.map(([l, k, low]) => [l, seoulPct(k, i[k], low)]);
+    state.repCharts.push(new Chart($("#rep-radar"), { type: "radar",
+      data: { labels: axes.map(([l, p]) => p == null ? l + " ?" : l), datasets: [
+        { label: i.n, data: axes.map(([, p]) => p ?? 0), borderColor: "#0f766e", backgroundColor: "rgba(15,118,110,.22)", pointBackgroundColor: "#0f766e" },
+        { label: "서울 중간", data: axes.map(() => 50), borderColor: "#94a3b8", borderDash: [4, 4], backgroundColor: "transparent", pointRadius: 0 }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.datasetIndex ? "서울 중간" : `서울 상위 ${Math.max(1, 100 - c.raw)}%` } } },
+        scales: { r: { min: 0, max: 100, ticks: { display: false, stepSize: 25 }, grid: { color: "rgba(148,163,184,.3)" }, angleLines: { color: "rgba(148,163,184,.3)" },
+          pointLabels: { color: tc, font: { size: 12, weight: "bold" } } } } } }));
+  }
+  if ($("#rep-trend")) {
+    state.guPP ??= await fetch("data/gu_pp.json").then((r) => r.json()).catch(() => ({}));
+    const from = `${thisYear - 10}-01`, gu = Object.fromEntries(state.guPP[i.g] || []);
+    const pp = (d.pp || []).filter(([m]) => m >= from), labels = pp.map(([m]) => m);
+    if (!pp.length) { $("#rep-trend").closest(".rcard").hidden = true; return; }
+    state.repCharts.push(new Chart($("#rep-trend"), { type: "line",
+      data: { labels, datasets: [
+        { label: i.n, data: pp.map(([, v]) => v), borderColor: "#0f766e", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+        { label: `${i.g} 중앙값`, data: labels.map((m) => gu[m] ?? null), borderColor: "#cbd5e1", borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true }] },
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label} 평당 ${won(c.raw)}` } } },
+        scales: { y: { ticks: { callback: (v) => won(v), color: tc, font: { size: 10 } } }, x: { ticks: { maxTicksLimit: 6, color: tc, font: { size: 10 } } } } } }));
+  }
+  $("#rep-save") && ($("#rep-save").onclick = () => saveReportImage(i));
+}
+
+// 리포트를 이미지(PNG)로 — 폰에서는 공유 시트(카톡 등), PC에서는 파일 저장
+async function saveReportImage(i) {
+  const btn = $("#rep-save"); btn.disabled = true; btn.textContent = "이미지 만드는 중…";
+  try {
+    if (!window.html2canvas) await new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = ok; s.onerror = no; document.head.appendChild(s);
+    });
+    const el = $("#report-v");
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: getComputedStyle(document.body).backgroundColor, useCORS: true });
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+    const file = new File([blob], `${i.n}_리포트.png`, { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: `${i.n} 리포트` }).catch(() => {});
+    else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
+  } catch (e) { alert("이미지를 만들지 못했습니다: " + e.message); }
+  btn.disabled = false; btn.textContent = "🖼️ 리포트 이미지로 저장 · 공유";
 }
 
 // ---------- 점수 가이드 ----------

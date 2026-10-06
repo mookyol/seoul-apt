@@ -295,3 +295,51 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 /* 비교 바가 떠 있으면 지도 카드·범례를 그 위로 */
 body.has-cmp .peek { bottom: 72px; max-height: calc(100% - 140px); overflow-y: auto; }
 body.has-cmp .legend { bottom: 70px; }
+/* 📋 시각화 단지 리포트 */
+.report-v { background: var(--bg); padding: 2px 0 4px; }
+.rhero { background: linear-gradient(135deg, #0f766e, #115e59); color: #fff; border-radius: 16px; padding: 14px 16px; margin: 0 0 10px; }
+.rtag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.2); }
+.rname { font-size: 21px; font-weight: 800; margin: 4px 0 2px; }
+.raddr { font-size: 12px; opacity: .85; }
+.rverdict { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(255,255,255,.12); border-radius: 12px; padding: 9px 12px; }
+.rverdict .stamp { font-size: 26px; }
+.rverdict b { font-size: 19px; }
+.rverdict small, .rsub { font-size: 12px; opacity: .9; }
+.rkpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.rkpis > div { background: rgba(255,255,255,.12); border-radius: 10px; padding: 6px 4px; text-align: center; }
+.rkpis small { display: block; font-size: 10px; opacity: .8; }
+.rkpis b { font-size: 14px; }
+.rcard { background: var(--card); border-radius: 14px; padding: 12px 14px; margin: 0 0 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.rcard h4 { margin: 0 0 8px; font-size: 14px; }
+.rcard h4 .note { font-weight: 400; }
+.rchart { height: 240px; }
+.rchart.short { height: 180px; }
+.rchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.rchip { font-size: 12px; padding: 4px 9px; border-radius: 999px; background: var(--bg); }
+.rchip.g { background: rgba(16,185,129,.16); color: #047857; }
+.rchip.w { background: rgba(245,158,11,.18); color: #92400e; }
+.bullet { position: relative; height: 56px; margin: 18px 6px 4px; }
+.bullet .band { position: absolute; top: 18px; height: 16px; border-radius: 8px; background: rgba(16,185,129,.28); }
+.bullet::before { content: ""; position: absolute; left: 0; right: 0; top: 18px; height: 16px; border-radius: 8px;
+  background: linear-gradient(90deg, rgba(37,99,235,.15), rgba(148,163,184,.12) 50%, rgba(220,38,38,.15)); }
+.bullet .fair { position: absolute; top: 12px; width: 2px; height: 28px; background: var(--text); }
+.bullet .now { position: absolute; top: 14px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); background: #dc2626; }
+.bullet .now.down { background: #2563eb; }
+.bullet span { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 700; }
+.bullet .fair span { top: -16px; }
+.bullet .now span { top: 25px; }
+.bscale { display: flex; justify-content: space-between; font-size: 10px; color: var(--sub); margin: 0 2px 6px; }
+.rfac { display: grid; grid-template-columns: 58px 1fr 54px 52px; align-items: center; gap: 6px; font-size: 12px; margin: 6px 0; }
+.rfac .trk { position: relative; height: 13px; background: var(--bg); border-radius: 7px; }
+.rfac .trk::before { content: ""; position: absolute; left: 28%; top: -3px; bottom: -3px; width: 1px; background: #94a3b8; }
+.rfac i { position: absolute; top: 0; bottom: 0; border-radius: 7px; }
+.rfac i.pos { background: #f87171; } .rfac i.neg { background: #60a5fa; }
+.rfac b { text-align: right; } .rfac small { color: var(--sub); text-align: right; }
+.rhub { display: grid; grid-template-columns: 58px 1fr 40px; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0; }
+.rhub i { display: block; height: 11px; border-radius: 6px; }
+.rhub i.g { background: #10b981; } .rhub i.y { background: #fbbf24; } .rhub i.r { background: #f87171; }
+.rhub b { text-align: right; }
+.rnote { padding: 0 4px 6px; }
+.rsave { width: 100%; margin: 0 0 12px; }
+.sh-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.sh-actions > * { flex: none; white-space: nowrap; }

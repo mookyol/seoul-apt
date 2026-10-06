@@ -342,6 +342,15 @@ def main():
             for dkm, o in near[:10]
         ]
 
+    # 구별 월별 평당가 중앙값 (500세대 이상 단지) — 단지 리포트의 "구 평균 대비 가격 흐름"
+    gu_m = defaultdict(lambda: defaultdict(list))
+    for s_ in summary:
+        if (s_.get("h") or 0) >= 500:
+            for mo, v in details[s_["c"]]["pp"]:
+                gu_m[s_["g"]][mo].append(v)
+    gu_pp = {g: [[mo, round(median(v))] for mo, v in sorted(ms.items()) if len(v) >= 5] for g, ms in gu_m.items()}
+    (OUT / "gu_pp.json").write_text(json.dumps(gu_pp, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
     for code, d in details.items():
         (OUT / "c" / f"{code}.json").write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")),
                                                 encoding="utf-8")

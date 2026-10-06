@@ -8,3 +8,4 @@ site/data/
 data/model/
 # OpenStreetMap 원본 (용량 큼) — build_network.py가 가공한 subway_graph.json만 커밋
 data/network/osm_*.json
+site/_mock/
