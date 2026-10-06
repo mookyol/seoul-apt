@@ -1023,13 +1023,13 @@ async function renderDetail(code) {
       <div class="kmsg">${kmsg}</div><table class="near" id="near"><tr><td>불러오는 중…</td></tr></table></div>
     ${i.dg ? `<div class="card"><h3>🛡️ 하락 방어력${guideLink("defense")} <span class="grade g${i.dg}">${i.dg}</span> <span class="note">${i.df}점 / 100${i.th ? " · 표본 적음" : ""}</span></h3>
       <table class="kv">
-        <tr><td>2022 하락기 낙폭</td><td><b class="down">${i.dd != null ? "-" + i.dd + "%" : "–"}</b>${i.de ? ' <span class="note">(같은 구·연식대 평균으로 추정)</span>' : ""}</td></tr>
-        <tr><td>지역 베타 <span class="note">1보다 크면 구 평균보다 출렁임</span></td><td>${i.bt ?? "–"}</td></tr>
+        <tr><td>2022 하락기 낙폭 <span class="note">같은 평형끼리 비교</span></td><td><b class="down">${i.dd != null ? "-" + i.dd + "%" : "–"}</b>${i.de ? ' <span class="note">(같은 구·연식대 평균으로 추정)</span>' : ""}</td></tr>
+        <tr><td>회복률 <span class="note">2024년 이후 최고 ÷ 2021~22 고점</span></td><td>${i.rc != null ? `<b class="${i.rc >= 100 ? "up" : "down"}">${i.rc}%</b>` : "–"}</td></tr>
         <tr><td>전세가율 (최근 6개월)</td><td>${i.jr2 != null ? i.jr2 + "%" : "–"}${i.jw ? ' <span class="badge">80%↑ 깡통전세 주의</span>' : ""}</td></tr>
         <tr><td>${esc(i.g)} 2년 내 입주물량</td><td>${i.su != null ? "구 세대의 " + i.su + "%" : "–"}</td></tr>
         <tr><td>거래회전율 (1년 거래÷세대)</td><td>${i.to != null ? i.to + "%" : "–"}</td></tr>
       </table>
-      <div class="note">구성: 낙폭 35% · 베타 15% · 전세가율 20% · 입주물량 15% · 회전율 15% (서울 내 백분위). 가중치는 백테스트로 조정 예정.</div></div>` : ""}
+      <div class="note">구성: 낙폭 35% · 회복률 25% · 거래 유동성 15% · 전세가율 10% · 입주물량 15%. 유동성·전세가율은 같은 구 안에서 비교.</div></div>` : ""}
     ${i.vp ? `<div class="card"><h3>🧹 보정 시세${guideLink("price")} <span class="note">해제·직거래·이상치 제외, 층 보정, 거래 적으면 주변 시세로 보완</span></h3>
       <div>평당 <b>${won(Math.round(i.vp))}</b> <span class="tag">신뢰도 ${{ high: "높음", mid: "보통", low: "낮음" }[i.cf] ?? "–"}</span>
       ${i.ac != null ? ` · 출근 접근성 <b>${i.ac}</b>점 <span class="note">(임시: 업무지구 7곳 직선거리 기반)</span>` : ""}</div></div>` : ""}
@@ -1404,12 +1404,16 @@ const GUIDE = [
   ["defense", "🛡️ 하락 방어력 (A~D)", `
     <table class="kv"><tr><th>요소</th><th>비중</th><th>위험한 쪽</th></tr>
       <tr><td>2022 하락기 낙폭 (2021.1~22.6 고점 → 22.7~23.12 저점)</td><td>35%</td><td>클수록</td></tr>
-      <tr><td>지역 베타 (구 시세보다 얼마나 출렁이나)</td><td>15%</td><td>클수록</td></tr>
-      <tr><td>전세가율 (최근 6개월)</td><td>20%</td><td>낮을수록</td></tr>
-      <tr><td>구 2년 내 입주물량 ÷ 구 세대수</td><td>15%</td><td>클수록</td></tr>
-      <tr><td>거래회전율 (1년 거래 ÷ 세대수)</td><td>15%</td><td>낮을수록</td></tr></table>
-    <div>각 요소를 서울 내 백분위로 바꿔 합친 뒤 0~100점(높을수록 방어력 강함), <b>4등분해 A~D</b>로 나눕니다.</div>
-    <div class="note">2022년 이후 준공 등 낙폭 자료가 없거나 고점·저점 거래가 2건 미만이면 같은 구·연식대 평균으로 추정합니다.
+      <tr><td>회복률 (2024년 이후 최고가 ÷ 고점)</td><td>25%</td><td>낮을수록</td></tr>
+      <tr><td>거래회전율 (1년 거래 ÷ 세대수) — <b>같은 구 안</b> 비교</td><td>15%</td><td>낮을수록</td></tr>
+      <tr><td>전세가율 (최근 6개월) — <b>같은 구 안</b> 비교</td><td>10%</td><td>낮을수록</td></tr>
+      <tr><td>구 2년 내 입주물량 ÷ 구 세대수</td><td>15%</td><td>클수록</td></tr></table>
+    <div>각 요소를 백분위로 바꿔 합친 뒤 0~100점(높을수록 방어력 강함), <b>4등분해 A~D</b>로 나눕니다.</div>
+    <div><b>낙폭·회복률은 같은 평형끼리 비교</b>합니다. 같은 단지에서도 59㎡는 84㎡보다 ㎡당가가 약 18% 높고 대형은 낮아서,
+      평형을 섞으면 그 분기에 어떤 평형이 팔렸느냐에 따라 "가짜 폭락"이 생깁니다. 분기 거래 2건 이상만 쓰고 2분기 평균으로 다듬으며,
+      거래가 적은 단지는 구 평균 쪽으로 당깁니다.</div>
+    <div>전세가율·회전율은 같은 구 안에서 비교합니다 — 상급지는 원래 전세가율이 낮고 보유 기간이 길어 서울 전체와 비교하면 구조적으로 불리하기 때문입니다.</div>
+    <div class="note">2022년 이후 준공 등 낙폭 자료가 없으면 같은 구·연식대 평균으로 추정합니다.
       2021~23년 거래 10건 미만은 <b>표본 적음</b>으로 표시합니다. 전세가율 80% 초과는 깡통전세 주의 표시.
       서울 아파트는 토지거래허가구역이라 전세가율은 투자 매력이 아니라 실수요 지지력으로만 해석하세요.</div>`],
   ["report", "📋 종합 리포트 판정", `

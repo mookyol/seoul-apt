@@ -3,7 +3,7 @@
 
   ① 실거래 정제: 해제·직거래 제외 → 층 보정(표준층 환산) → 이상치 제거 → 베이즈 축소 시세 + 신뢰도
   ③ 고용 접근성(임시): 업무지구 7곳 중력모형 — 직선거리 기반, 실제 통행시간 행렬로 교체 예정
-  ④ 하락 방어력: 2021~23 낙폭(MDD) · 지역 베타 · 전세가율 · 입주물량 · 거래회전율 → 0~100점, A~D 등급
+  ④ 하락 방어력: 2022 낙폭(평형 고정) · 회복력 · 거래 유동성 · 전세가율 · 입주물량 → 0~100점, A~D 등급
 
 사용법: python value_model.py   (build_site.py 전에 실행 — 배포 워크플로가 자동 실행)
 """
@@ -18,6 +18,7 @@ OUT = ROOT / "data" / "model"
 PYEONG = 3.305785
 K_PRICE = 5      # 시세 베이즈 축소 강도 (거래 n건 vs 동·연식대 기준값 K건 몫)
 K_INDEX = 3      # 분기 지수 축소 강도
+K_MDD = 10       # 낙폭·회복률 축소 강도 (사이클 거래 n건 vs 구 중앙값 K건 몫)
 HUBS = [         # 업무지구 (이름, 위도, 경도, 일자리 가중치 — 고소득 일자리 밀집도 반영한 임시값, 전국사업체조사로 정교화 예정)
     ("광화문·종로", 37.5759, 126.9768, 1.00), ("강남", 37.4979, 127.0276, 1.50),
     ("여의도", 37.5216, 126.9243, 0.60), ("판교", 37.3948, 127.1112, 0.30),
@@ -120,6 +121,32 @@ def mdd_beta(g):
         return (len(s) * b + 8 * 1.0) / (len(s) + 8)                       # 1.0 쪽으로 축소
     betas = ok.groupby("단지코드")[["da", "dm"]].apply(beta)
     return mdd, betas
+
+
+def mix_index(df):
+    """평형 고정 분기 지수 — 같은 단지·같은 평형대 평균을 뺀 잔차의 분기 중앙값.
+    59㎡는 84㎡보다 ㎡당가가 ~18% 높아서, 평형이 섞인 중앙값은 그 분기에 어떤 평형이 팔렸는지에 따라 출렁인다.
+    2건 이상 분기만 쓰고 2분기 이동평균으로 우연한 1~2건의 영향을 줄인다."""
+    d = df[["단지코드", "band", "q", "lp"]].copy()
+    d["res"] = d["lp"] - d.groupby(["단지코드", "band"], observed=True)["lp"].transform("mean")
+    g = d.groupby(["단지코드", "q"]).agg(res=("res", "median"), n=("res", "size")).reset_index()
+    g = g[g["n"] >= 2].sort_values(["단지코드", "q"])
+    g["sm"] = g.groupby("단지코드")["res"].transform(lambda s: s.rolling(2, min_periods=1).mean())
+    return g
+
+
+def drawdown_recovery(df):
+    """2022 하락기 낙폭(고점 2021Q1~22Q2 → 저점 22Q3~23Q4)과 회복률(2024년 이후 최고 ÷ 고점)"""
+    g = mix_index(df)
+    pw = (g["q"] >= pd.Period("2021Q1")) & (g["q"] <= pd.Period("2022Q2"))
+    tw = (g["q"] >= pd.Period("2022Q3")) & (g["q"] <= pd.Period("2023Q4"))
+    peak = g[pw].groupby("단지코드")["sm"].max()
+    trough = g[tw].groupby("단지코드")["sm"].min()
+    after = g[g["q"] >= pd.Period("2024Q1")].groupby("단지코드")["sm"].max()
+    n_cycle = g[pw | tw].groupby("단지코드")["n"].sum()
+    mdd = (1 - np.exp(trough - peak)).clip(lower=0).dropna()
+    rec = np.exp(after - peak).dropna()
+    return mdd, rec, n_cycle
 
 
 def jeonse_ratio(sale):
@@ -242,9 +269,10 @@ def main():
 
     # ④ 하락 방어력
     g = quarter_index(df)
-    mdd, beta = mdd_beta(g)
+    _, beta = mdd_beta(g)                                                  # 베타는 참고 표시용 (점수에서 제외)
+    mdd, rec, n_cycle = drawdown_recovery(df)
     sale = df[df["date"] >= df["date"].max() - pd.DateOffset(months=6)].groupby("단지코드")["ppa_std"].median()
-    risk = pd.DataFrame({"mdd": mdd, "beta": beta}).reindex(price.index)
+    risk = pd.DataFrame({"mdd": mdd, "rec": rec, "beta": beta}).reindex(price.index)
     risk["jeonse_ratio"] = jeonse_ratio(sale)
     supply = gu_supply_ratio(cx.reset_index())
     gu = df.groupby("단지코드")["구"].first().reindex(risk.index)
@@ -256,13 +284,21 @@ def main():
     # 2022년 이후 준공 등 MDD 없는 단지 → 같은 구·같은 연식대 평균으로 대체, 신뢰도 낮음 표시
     age_band = (df.groupby("단지코드")["by"].first() // 10).reindex(risk.index)
     risk["mdd_est"] = risk["mdd"].isna()
-    risk["mdd"] = risk["mdd"].fillna(risk.groupby([gu, age_band])["mdd"].transform("median")).fillna(risk["mdd"].median())
+    # 거래가 적은 단지는 구 중앙값 쪽으로 당김 (사이클 거래 n건 : 구 중앙값 K_MDD건)
+    n = n_cycle.reindex(risk.index).fillna(0)
+    for k in ("mdd", "rec"):
+        gm = risk.groupby(gu)[k].transform("median").fillna(risk[k].median())
+        risk[k] = ((n * risk[k] + K_MDD * gm) / (n + K_MDD)).where(risk[k].notna())
+        risk[k] = risk[k].fillna(risk.groupby([gu, age_band])[k].transform("median")).fillna(risk[k].median())
 
+    # 전세가율·거래 유동성은 같은 구 안에서 비교 (상급지는 원래 전세가율이 낮고 보유 기간이 길어 서울 전체 비교 시 구조적으로 불리)
+    in_gu = lambda s: s.groupby(gu).rank(pct=True)
+    jr = risk["jeonse_ratio"].clip(upper=0.7)
     r = (0.35 * pct(risk["mdd"])
-         + 0.15 * pct(risk["beta"].fillna(1.0))
-         + 0.20 * (1 - pct(risk["jeonse_ratio"].clip(upper=0.7).fillna(risk["jeonse_ratio"].median())))
-         + 0.15 * pct(risk["supply"].fillna(0))
-         + 0.15 * (1 - pct(risk["turnover"].fillna(risk["turnover"].median()))))
+         + 0.25 * (1 - pct(risk["rec"]))
+         + 0.15 * (1 - in_gu(risk["turnover"]).fillna(0.5))
+         + 0.10 * (1 - in_gu(jr).fillna(0.5))
+         + 0.15 * pct(risk["supply"].fillna(0)))
     risk["defense"] = ((1 - pct(r)) * 100).round(1)                       # 높을수록 방어력 강함
     risk["grade"] = pd.qcut(risk["defense"], 4, labels=["D", "C", "B", "A"]).astype(str)
     risk["jeonse_warn"] = risk["jeonse_ratio"] > 0.8                      # 깡통전세 위험
@@ -278,7 +314,7 @@ def main():
            if c in fut},
         **({f"출근_{h}": commute_min[h].reindex(price.index) for h in commute_min.columns}
            if commute_min is not None else {}),
-        "낙폭2022": (risk["mdd"] * 100).round(1), "낙폭추정": risk["mdd_est"],
+        "낙폭2022": (risk["mdd"] * 100).round(1), "낙폭추정": risk["mdd_est"], "회복률": (risk["rec"] * 100).round(0),
         "지역베타": risk["beta"].round(2), "전세가율": (risk["jeonse_ratio"] * 100).round(0),
         "구입주물량비율": (risk["supply"] * 100).round(2), "거래회전율": (risk["turnover"] * 100).round(1),
         "방어력": risk["defense"], "방어등급": risk["grade"], "전세경고": risk["jeonse_warn"],
