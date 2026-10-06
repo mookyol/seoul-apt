@@ -280,8 +280,12 @@ def building(key, bjd, jibun):
             raise PermissionError("건축물대장 API 미승인")
         try:
             body = r.json()
-        except ValueError:          # 일일 호출 한도 초과 등은 JSON이 아닌 오류 문서로 옴 → 오늘은 여기까지
-            raise PermissionError("건축물대장 API 한도 초과 또는 오류")
+        except ValueError:
+            # JSON이 아닌 응답: 한도 초과·키 문제면 오늘은 중단, 그 밖(일시적 서버 오류 페이지)은 이 단지만 건너뛰고 계속
+            if any(m in r.text for m in ("LIMITED_NUMBER_OF_SERVICE_REQUESTS", "SERVICE_KEY_IS_NOT_REGISTERED",
+                                         "SERVICE_ACCESS_DENIED", "UNREGISTERED")):
+                raise PermissionError("건축물대장 API 한도 초과 또는 미승인: " + r.text[:120])
+            raise requests.RequestException("건축물대장 일시 오류: " + r.text[:120])
         items = ((body.get("response", {}).get("body", {}).get("items") or {}) or {}).get("item") or []
         items = items if isinstance(items, list) else [items]
         hh = sum(int(float(i.get("hhldCnt") or 0)) for i in items) if op == "getBrTitleInfo" else \
