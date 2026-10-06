@@ -245,7 +245,7 @@ if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
 }
 
 function saveFilters() {
-  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg", "#f-cw", "#f-cm"];
+  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg", "#f-cw", "#f-cm", "#f-ty"];
   store.set("filters", Object.fromEntries(ids.map((id) => [id, $(id).value])));
 }
 
@@ -748,7 +748,7 @@ function filtered(ignoreGu = false) {
   const q = stq ? "" : $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
         sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value,
-        dg = $("#f-dg").value, cm = +$("#f-cm").value;
+        dg = $("#f-dg").value, cm = +$("#f-cm").value, ty = $("#f-ty")?.value;
   // 띄어쓴 단어가 모두 들어 있으면 일치 (예: "천호동 528", "천호 삼성", "잠실 엘스")
   const words = q.split(/\s+/).filter(Boolean);
   const hay = (i) => (i._hay ??= [i.n, i.al, i.d, i.g, i.st, i.d + " " + i.j, i.j].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "));
@@ -762,6 +762,7 @@ function filtered(ignoreGu = false) {
     (!age || (age > 0 ? i.y && thisYear - i.y <= age : i.y && thisYear - i.y >= -age)) &&
     (!n || i.n12 >= n) &&
     (!dg || (i.dg && dg.includes(i.dg))) &&
+    (!ty || i.ty === ty) &&
     (!cm || (ctOf(i) != null && ctOf(i) <= cm)) &&
     (!stq || (i.la && (i._std = Math.round(kmTo(stq, i) * 1000)) <= state.stRadius)) &&
     (words.length || $("#f-small")?.checked || !isSmall(i)));
@@ -772,6 +773,7 @@ function filtered(ignoreGu = false) {
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
     df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
     gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"), ct: (i) => ctOf(i) ?? 1e9, far: lo("far"), hhD: hi("h"),
+    rt: (i) => -(i.rg?.[3]?.[0] ?? -1e9), rgDn: (i) => -(i.rg?.[1]?.[0] ?? -1e9), rgUp: (i) => -(i.rg?.[0]?.[0] ?? -1e9),
   }[$("#f-sort").value];
   return stq ? xs.sort((a, b) => a._std - b._std) : xs.sort((a, b) => key(a) - key(b));
 }
@@ -805,7 +807,7 @@ function itemHTML(i, rank) {
   return `<li class="item" data-c="${i.c}">
     <div class="nm">${rank ? `<span class="rk">${rank}</span>` : ""}${isFav(i.c) ? "⭐ " : ""}${esc(i.n)}${isNew(i) ? '<span class="badge">새 거래</span>' : ""}${remarkBadge(i.c)}</div>
     <div class="px">${i.p84 ? "84㎡ " + won(i.p84) : i.p59 ? "59㎡ " + won(i.p59) : i.p ? "평당 " + won(i.p) : i.j84 ? "전세 " + won(i.j84) : "–"}</div>
-    <div class="sub">${i._std != null && stationQuery() ? `<b class="stdist">🚇 ${esc(stationQuery().name)}역 ${dist(i._std)}</b><br>` : ""}${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · <b>${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}</b>${i.far ? ` · 용적률 <b>${i.far}%</b>` : ""}<br>
+    <div class="sub">${i.ty && TYPES[i.ty] && i.ty !== "평균형" ? `<span class="tag">${TYPES[i.ty][0]} ${esc(i.ty)}</span> ` : ""}${i._std != null && stationQuery() ? `<b class="stdist">🚇 ${esc(stationQuery().name)}역 ${dist(i._std)}</b><br>` : ""}${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · <b>${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}</b>${i.far ? ` · 용적률 <b>${i.far}%</b>` : ""}<br>
       🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${ctOf(i) != null ? ` · 🏙️ ${HUB_NAMES[cwIdx()]} ${ctOf(i)}분` : ""}${i.em != null ? `<br>🎒 초 ${dist(i.em)} 중 ${dist(i.mm)} 고 ${dist(i.hm)}` : ""}</div>
     <div class="chg"><span class="lsc">${i.ls ?? "–"}<small>점</small></span><br><span class="${c}">${m}</span></div>
     ${scoreBars(i)}
@@ -1225,6 +1227,38 @@ function seoulPct(key, v, lowerBetter = false) {
 }
 const RADAR_AXES = [["출근", "ac"], ["단지 규모", "h"], ["학원가", "a1"], ["초등학교", "em", true], ["역 거리", "sd", true], ["하락 방어", "df"]];
 
+// 📊 국면별 성적표 — 지난 상승기·하락기·회복기의 실제 상승률(같은 평형끼리)과 서울 순위
+const TYPES = {
+  전천후형: ["⭐", "t-all", "오를 때 많이 오르고, 떨어질 때 덜 빠지고, 회복도 빨랐어요"],
+  방어형: ["🛡️", "t-def", "하락기에 강했고, 외곽이 따라잡던 상승장 후반엔 덜 올랐어요"],
+  탄력형: ["🚀", "t-up", "상승장에 많이 올랐지만 하락기엔 많이 빠졌어요"],
+  평균형: ["⚖️", "t-avg", "국면마다 서울 평균 근처였어요"],
+  약세형: ["⚠️", "t-weak", "세 국면 모두 서울 하위권이었어요"],
+};
+const pgrade = (p) => p >= 75 ? "A" : p >= 50 ? "B" : p >= 25 ? "C" : "D";
+const prank = (p) => p >= 50 ? `상위 ${Math.max(1, 100 - p)}%` : `하위 ${Math.max(1, p)}%`;
+function regimeHTML(i) {
+  if (!i.rg) return "";
+  const t = TYPES[i.ty];
+  const rows = [["상승기", "2019.8→21.8"], ["하락기", "2021.8→23.8"], ["회복기", "2023.8→현재"]].map(([k, p], n) => {
+    const v = i.rg[n];
+    if (!v) return `<div class="rg-row"><span><b>${k}</b><small>${p}</small></span><div class="note">거래 부족</div><span></span><span></span></div>`;
+    const l = pgrade(v[1]);
+    return `<div class="rg-row"><span><b>${k}</b><small>${p}</small></span>
+      <div class="rg-trk"><i class="rg${l}" style="width:${v[1]}%"></i></div>
+      <span class="rg-ret ${cls(v[0])}">${v[0] > 0 ? "+" : ""}${v[0]}%</span><span class="g8 rg${l}">${l}</span></div>`;
+  }).join("");
+  const tot = i.rg[3];
+  return `<div class="rcard"><h4>📊 국면별 성적표 ${t ? `<span class="rg-type ${t[1]}">${t[0]} ${esc(i.ty)}</span>` : ""}${guideLink("regime")}</h4>
+    ${t ? `<div class="note" style="margin:-2px 0 6px">${t[2]}</div>` : ""}
+    ${rows}
+    <div class="rg-foot">
+      <div>7년 누적 (2019.8→현재)<b>${tot ? `${tot[0] > 0 ? "+" : ""}${tot[0]}%` : "–"}</b>${tot ? `<small>서울 ${prank(tot[1])}</small>` : ""}</div>
+      <div>💧 거래 유동성<b>${i.lq != null ? pgrade(i.lq) : "–"}</b>${i.lq != null ? `<small>서울 ${prank(i.lq)}</small>` : ""}</div>
+    </div>
+    <div class="note">같은 평형끼리 비교한 실제 상승률 · 막대 = 서울 단지 중 순위 (A 상위 25% … D 하위 25%)</div></div>`;
+}
+
 function reportHTML(i) {
   const m84 = (pp) => pp ? Math.round(pp * 84 / 3.305785 / 100) * 100 : null;     // 평당가(전용) → 84㎡ 환산
   const base = (i.vd || "").replace(/\(.*\)/, ""), tag = (i.vd || "").match(/\(.*\)/)?.[0];
@@ -1278,6 +1312,7 @@ function reportHTML(i) {
     <div class="rcard"><h4>🕸️ 입지 프로필 <span class="note">서울 전체 대비 · 점선 = 서울 중간</span></h4>
       <div class="rchart"><canvas id="rep-radar"></canvas></div>
       ${chips.length ? `<div class="rchips">${chips.join("")}</div>` : ""}</div>
+    ${regimeHTML(i)}
     ${gauge}
     <div class="rcard"><h4>📈 가격 흐름 vs ${esc(i.g)} <span class="note">평당가 · 회색 = ${esc(i.g)} 500세대+ 중앙값</span></h4>
       <div class="rchart short"><canvas id="rep-trend"></canvas></div>
@@ -1401,6 +1436,18 @@ const GUIDE = [
     </ol>
     <div>신뢰도: 최근 6개월 거래 <b>10건 이상 높음</b> · 3~9건 보통 · 2건 이하 낮음</div>
     <div class="note">목록의 1년·3년 상승률은 최근 12개월 평당가 중앙값을 1년 전·3년 전 같은 기간과 비교한 값입니다.</div>`],
+  ["regime", "📊 국면별 성적표", `
+    <div>단지가 지난 세 국면에서 <b>실제로 얼마나 올랐는지</b>를 서울 단지들과 비교합니다 (예측이 아니라 기록).</div>
+    <table class="kv"><tr><th>국면</th><th>기간 (6개월 시세 → 6개월 시세)</th></tr>
+      <tr><td>🚀 상승기</td><td>2019.8 → 2021.8 · 서울 전체 급등, 외곽이 따라잡던 시기</td></tr>
+      <tr><td>📉 하락기</td><td>2021.8 → 2023.8 · 금리 인상 하락기</td></tr>
+      <tr><td>🔄 회복기</td><td>2023.8 → 현재 · 상급지 중심 회복</td></tr></table>
+    <div><b>같은 평형끼리</b> 비교합니다 (59㎡는 84㎡보다 ㎡당가가 ~18% 높아서 평형을 섞으면 왜곡). 양쪽 6개월에 거래가 3건 이상인 단지만 계산합니다.</div>
+    <div>성격: <b>⭐ 전천후형</b> 세 국면 모두 상위 40% · <b>🛡️ 방어형</b> 하락기 상위 40% & 상승기 하위 50% ·
+      <b>🚀 탄력형</b> 상승기 상위 40% & 하락기 하위 50% · <b>⚠️ 약세형</b> 세 국면 모두 하위 40% · 나머지 <b>⚖️ 평균형</b>.</div>
+    <div><b>왜 점수 하나로 안 합치나</b> — 2017~2024년 8개 시점 백테스트에서 "비쌀수록 더 오른다"는 +0.75(2023→25)부터 −0.44(2019→21)까지 뒤집혔습니다.
+      출근·연식·전세가율도 장세마다 방향이 바뀌었고, 8번 모두 같은 방향이었던 건 <b>거래 유동성</b>뿐이었습니다(약하지만 꾸준히 +).
+      그래서 미래를 맞히는 점수 대신 단지의 <b>성격</b>을 보여주고, 지금 장세에 맞는지는 직접 판단하도록 했습니다.</div>`],
   ["defense", "🛡️ 하락 방어력 (A~D)", `
     <table class="kv"><tr><th>요소</th><th>비중</th><th>위험한 쪽</th></tr>
       <tr><td>2022 하락기 낙폭 (2021.1~22.6 고점 → 22.7~23.12 저점)</td><td>35%</td><td>클수록</td></tr>

@@ -149,6 +149,33 @@ def drawdown_recovery(df):
     return mdd, rec, n_cycle
 
 
+REGIMES = [("상승기", "2019-08-31", "2021-08-31"), ("하락기", "2021-08-31", "2023-08-31"), ("회복기", "2023-08-31", None)]
+
+
+def regime_table(df):
+    """⑥ 국면별 성적표 — 지난 상승기·하락기·회복기와 7년 누적, 같은 평형끼리 비교한 상승률과 서울 백분위.
+    시기별 백테스트(factor_backtest.py)에서 '앞으로 오를 단지' 공식은 장세마다 뒤집혀서, 예측 대신 실제 이력을 보여준다."""
+    d = df[["단지코드", "band", "date", "lp"]].copy()
+    d["res"] = d["lp"] - d.groupby(["단지코드", "band"], observed=True)["lp"].transform("mean")
+    end = d["date"].max()
+
+    def level(at):
+        w = d[(d["date"] > at - pd.DateOffset(months=6)) & (d["date"] <= at)].groupby("단지코드")["res"]
+        return w.median().where(w.size() >= 3)
+
+    out = pd.DataFrame()
+    for name, a, b in REGIMES + [("누적", "2019-08-31", None)]:
+        r = (level(pd.Timestamp(b) if b else end) - level(pd.Timestamp(a))).dropna()
+        out[f"{name}상승률"] = (np.expm1(r) * 100).round(1)
+        out[f"{name}백분위"] = (r.rank(pct=True) * 100).round(0)
+    up, dn, rc = out["상승기백분위"], out["하락기백분위"], out["회복기백분위"]
+    out["성격"] = np.select(
+        [(up >= 60) & (dn >= 60) & (rc >= 60), (dn >= 60) & (up < 50), (up >= 60) & (dn < 50),
+         (up < 40) & (dn < 40) & (rc < 40), up.notna() & dn.notna()],
+        ["전천후형", "방어형", "탄력형", "약세형", "평균형"], default="")
+    return out
+
+
 def jeonse_ratio(sale):
     paths = sorted((ROOT / "data" / "rent").glob("*.csv"))
     if not paths:
@@ -305,6 +332,7 @@ def main():
     cycle = df[(df["date"] >= "2021-01-01") & (df["date"] < "2024-01-01")].groupby("단지코드").size()
     risk["thin"] = cycle.reindex(risk.index).fillna(0) < 10               # 2021~23 거래 10건 미만 = 판정 표본 적음
 
+    regime = regime_table(df).reindex(price.index)
     out = pd.DataFrame({
         "단지코드": price.index,
         "보정평당가": (np.exp(price["lp_shrunk"]) * PYEONG).round(0),
@@ -319,8 +347,11 @@ def main():
         "구입주물량비율": (risk["supply"] * 100).round(2), "거래회전율": (risk["turnover"] * 100).round(1),
         "방어력": risk["defense"], "방어등급": risk["grade"], "전세경고": risk["jeonse_warn"],
         "표본적음": risk["thin"] | risk["mdd_est"],
+        **{c: regime[c] for c in regime.columns},
+        "유동성백분위": (risk["turnover"].rank(pct=True) * 100).round(0),
     })
     out.to_csv(OUT / "complex_value.csv", index=False, encoding="utf-8-sig")
+    print(f"⑥ 국면별 성적표: 성격 {out['성격'].replace('', np.nan).value_counts().to_dict()}")
     print(f"④ 방어력: {len(out):,}개 단지 / 등급 분포 {out['방어등급'].value_counts().to_dict()} / "
           f"MDD 추정 {int(risk['mdd_est'].sum()):,}개")
 

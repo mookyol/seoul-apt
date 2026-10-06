@@ -84,6 +84,11 @@
           <option value="kp">주변보다 싼 순</option>
           <option value="kr">주변보다 덜 오른 순</option>
         </optgroup>
+        <optgroup label="국면별 성적">
+          <option value="rt">7년 누적 상승률 높은 순 (2019.8→)</option>
+          <option value="rgDn">하락기 덜 빠진 순 (2021.8→23.8)</option>
+          <option value="rgUp">상승기 많이 오른 순 (2019.8→21.8)</option>
+        </optgroup>
         <optgroup label="안정성">
           <option value="df">하락 방어력 높은 순</option>
           <option value="dd">2022 하락기 덜 빠진 순</option>
@@ -144,6 +149,10 @@
       <label>연식 <select id="f-age">
         <option value="">전체</option><option value="10">10년 이내</option><option value="20">20년 이내</option>
         <option value="-30">30년 이상(재건축 후보)</option>
+      </select></label>
+      <label>성격 <select id="f-ty">
+        <option value="">전체</option><option value="전천후형">⭐ 전천후형</option><option value="방어형">🛡️ 방어형</option>
+        <option value="탄력형">🚀 탄력형</option><option value="평균형">⚖️ 평균형</option><option value="약세형">⚠️ 약세형</option>
       </select></label>
       <label>하락 방어력 <select id="f-dg">
         <option value="">전체</option><option value="A">A등급만</option><option value="AB">B등급 이상</option>

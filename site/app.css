@@ -346,3 +346,19 @@ body.has-cmp .legend { bottom: 70px; }
 
 #m-price.off { background: #475569; color: #fff; }
 .bub.plain { background: var(--card); color: var(--text); border: 1px solid #94a3b8; font-weight: 600; }
+
+/* 📊 국면별 성적표 */
+.rg-type { font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 999px; margin-left: 4px; }
+.t-def { background: #dbeafe; color: #1d4ed8; } .t-up { background: #fee2e2; color: #b91c1c; }
+.t-all { background: #dcfce7; color: #15803d; } .t-avg { background: #f1f5f9; color: #475569; } .t-weak { background: #fef3c7; color: #92400e; }
+.rg-row { display: grid; grid-template-columns: 70px 1fr 54px 24px; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
+.rg-row small { display: block; color: var(--sub); font-size: 10px; }
+.rg-trk { position: relative; height: 11px; background: var(--bg); border-radius: 6px; }
+.rg-trk::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: #94a3b8; }
+.rg-trk i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; }
+.rg-ret { text-align: right; font-weight: 700; }
+.g8 { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-weight: 800; font-size: 12px; color: #fff; }
+.rgA { background: #059669; } .rgB { background: #65a30d; } .rgC { background: #f59e0b; } .rgD { background: #dc2626; }
+.rg-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 6px; }
+.rg-foot > div { background: var(--bg); border-radius: 10px; padding: 6px 10px; font-size: 11px; color: var(--sub); }
+.rg-foot b { display: block; font-size: 15px; color: var(--text); }
