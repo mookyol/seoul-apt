@@ -255,3 +255,6 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .st-pin { transform: translate(-50%, -50%); white-space: nowrap; background: #0f766e; color: #fff; font-weight: 700; font-size: 13px;
   padding: 4px 9px; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.3); border: 2px solid #fff; }
 .share-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.peek-links { display: flex; gap: 6px; margin-top: 8px; }
+.peek-links a { flex: 1; text-align: center; padding: 7px 4px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line, #ddd);
+  color: var(--text); text-decoration: none; font-size: 13px; font-weight: 600; }

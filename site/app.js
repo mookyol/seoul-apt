@@ -443,11 +443,15 @@ function showPeek(i) {
     ${i.ls != null ? scoreBars(i) : ""}
     <div class="peek-lt">${lt ? `최근 거래 <b>${won(lt[3])}</b> · ${lt[1]}㎡ ${lt[2]}층 · ${lt[0]}` : i.lj ? `최근 전세 <b>${won(i.lj[2])}</b> · ${i.lj[1]}㎡ · ${i.lj[0]}` : "거래 기록 없음"}
       ${i.st ? ` · 🚇 ${esc(i.st)} ${dist(i.sd)}` : ""}</div>
+    <div class="peek-links">${listingLinks(i)}</div>
     <button class="btn" id="peek-go">상세 정보 보기 →</button>`;
   $("#peek").hidden = false;
   $("#peek .peek-x").onclick = () => ($("#peek").hidden = true);
   $("#peek-go").onclick = () => openDetail(i.c);
 }
+// 실시간 매물은 공개 API가 없어 네이버부동산·호갱노노 검색으로 연결
+const listingLinks = (i) => `<a href="https://m.land.naver.com/search/result/${encodeURIComponent(i.g + " " + i.n)}" target="_blank" rel="noopener">🏷️ 네이버 매물</a>
+  <a href="https://hogangnono.com/search?q=${encodeURIComponent(i.d + " " + i.n)}" target="_blank" rel="noopener">🏠 호갱노노</a>`;
 function drawMarkers() {
   if (!state.layer) return;
   const mode = $("#m-color").value;
@@ -862,7 +866,6 @@ async function renderDetail(code) {
   const kakaoUrl = i.la ? `https://map.kakao.com/link/map/${encodeURIComponent(i.n)},${i.la},${i.lo}`
     : `https://map.kakao.com/?q=${encodeURIComponent(`서울 ${i.g} ${i.d} ${i.j}`)}`;
   const roadUrl = i.la ? `https://map.kakao.com/link/roadview/${i.la},${i.lo}` : kakaoUrl;
-  const naverUrl = `https://m.land.naver.com/search/result/${encodeURIComponent(i.g + " " + i.n)}`;
   const kmsg = i.kp == null ? "주변(1.5km) 비교 단지가 부족합니다" :
     `주변 1.5km 단지보다 평당가가 <b class="${cls(-i.kp)}">${Math.abs(i.kp)}% ${i.kp < 0 ? "싸고" : "비싸고"}</b>` +
     (i.kr == null ? "" : `, 3년 상승률은 <b class="${cls(i.kr)}">${Math.abs(i.kr)}%p ${i.kr < 0 ? "덜 올랐습니다" : "더 올랐습니다"}</b>`);
@@ -876,7 +879,7 @@ async function renderDetail(code) {
     </div>
     <div class="sh-actions">
       <button id="cmp-btn" class="${inCmp(code) ? "on" : ""}">📊 ${inCmp(code) ? "비교에서 빼기" : "비교에 추가"}</button>
-      <a href="${naverUrl}" target="_blank" rel="noopener">🏷️ 현재 매물</a>
+      ${listingLinks(i)}
       <a href="${roadUrl}" target="_blank" rel="noopener">👀 로드뷰</a>
       <a href="${kakaoUrl}" target="_blank" rel="noopener">🗺️ 카카오맵</a>
     </div>
@@ -1113,7 +1116,7 @@ function reportHTML(i) {
       <div class="verdict ${vcls}">${esc(base || "–")}${tag ? `<small>${tag === "(장기)" ? "장기" : "최근"}</small>` : ""}</div>
       <div><div>적정가 <b>${won(m84(i.fv))}</b> <span class="note">(84㎡ 환산)</span></div>
         <div>현재 시세 <b>${won(i.p84 ?? m84(i.vp))}</b></div>
-        <div>괴리율 <b class="${cls(i.gp)}">${i.gp > 0 ? "+" : ""}${i.gp}%</b> <span class="note">z ${i.gz ?? "–"} · 1년 변화 ${i.gd != null ? (i.gd > 0 ? "+" : "") + i.gd + "%p" : "–"}</span></div></div>
+        <div>괴리율 <b class="${cls(i.gp)}">${i.gp == null ? "–" : (i.gp > 0 ? "+" : "") + i.gp + "%"}</b> <span class="note">z ${i.gz ?? "–"} · 1년 변화 ${i.gd != null ? (i.gd > 0 ? "+" : "") + i.gd + "%p" : "–"}</span></div></div>
     </div>
     <div class="note">신뢰도 <b>${i.vc ?? "–"}</b> (최근 6개월 거래 · ${esc(i.g)} 모델 오차 ${i.re ?? "–"}%)${tag ? ` · ${VERDICT_NOTE[tag]}` : ""}
       ${old ? "<br>⚠️ 준공 30년 이상 — 재건축 기대가 가격에 반영돼 모델(건물 기준)이 잘 맞지 않을 수 있습니다." : ""}</div>
