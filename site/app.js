@@ -141,12 +141,17 @@ async function init() {
     if ($("#tab-supply").classList.contains("active")) return renderSupply();   // 청약 탭에서는 청약 공고 검색
     if ($("#tab-map").classList.contains("active")) {
       const stq = stationQuery();
-      if (stq) return showStationOnMap(stq);
-      const q = $("#q").value.trim().replace(/\s+/g, "").replace(/역$/, "");
-      if (!q || (state.stationIdx && Object.keys(state.stationIdx).some((n) => n.startsWith(q)))) return;   // 역 이름 입력 중이면 지도에 머무름
+      if (stq) showStationOnMap(stq);
+      return;   // 지도 탭에서는 입력 중(한글 조합 중간 글자 포함) 탭을 바꾸지 않음 — 단지명은 엔터로 목록 이동
     }
     if (!$("#tab-list").classList.contains("active")) showTab("list");
     renderList();
+  });
+  $("#q").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing || !$("#tab-map").classList.contains("active")) return;
+    const stq = stationQuery();
+    if (stq) showStationOnMap(stq); else { showTab("list"); renderList(); }
+    $("#q").blur();
   });
   $$("#sub-seg button").forEach((b) => b.addEventListener("click", () => {
     $$("#sub-seg button").forEach((x) => x.classList.toggle("on", x === b)); renderSupply();
@@ -781,6 +786,7 @@ function setListView(v) {
 
 // 역을 지도 가운데로 옮기고 반경 원 + 역 이름 표시
 function showStationOnMap(stq) {
+  state.map.invalidateSize();   // 폰 키보드가 열리고 닫히며 지도 크기가 바뀐 경우 대비
   state.map.setView([stq.la, stq.lo], state.stRadius > 1000 ? 14 : 15);
   state.stCircle?.remove(); state.stPin?.remove();
   state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#0f766e", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
