@@ -373,7 +373,8 @@ def main():
                   if ts else None,                                                  # 최근 매매 거래
             "lj": (lambda t: [t["date"], round(t["area"], 1), t["price"]])(max(js, key=lambda t: t["date"]))
                   if js else None,                                                  # 최근 전세 거래
-            "far": num("용적률"), "bcr": num("건폐율"),                             # 용적률·건폐율 (건축물대장)
+            "far": num("용적률") if 50 <= (num("용적률") or 0) <= 1000 else None,     # 대장 오류값(1%, 20만% 등) 제외
+            "bcr": num("건폐율") if 5 <= (num("건폐율") or 0) <= 90 else None,                             # 용적률·건폐율 (건축물대장)
             **value_fields(value.get(code)),
         })
 
