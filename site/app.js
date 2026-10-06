@@ -151,6 +151,12 @@ async function init() {
   $("#m-gu").addEventListener("change", onZoom);
   $("#m-base").value = store.get("mbase", "clean");
   $("#m-base").addEventListener("change", () => { store.set("mbase", $("#m-base").value); setBase($("#m-base").value); });
+  $("#m-label").value = store.get("mlabel", "p84");
+  $("#m-label").addEventListener("change", () => { store.set("mlabel", $("#m-label").value); updateBubbles(); });
+  $("#m-more").addEventListener("click", () => ($("#m-panel").hidden = !$("#m-panel").hidden));
+  $("#m-filter").addEventListener("change", drawMarkers);
+  $$("#tab-list .filters select").forEach((sel) => sel.addEventListener("change", () => $("#m-filter").checked && drawMarkers()));
+  getSubway().then(() => stationQuery() && renderList());   // 역 이름 검색용
   $("#cmp-bar").addEventListener("click", () => (location.hash = "cmp"));
   window.addEventListener("hashchange", route);
   $("#m-color").value = store.get("mcolor", "ls");
@@ -278,6 +284,15 @@ function initMap() {
   drawMarkers();
   loadOverlays();
   state.map.on("zoomend", onZoom);
+  state.map.on("moveend", () => state.map.getZoom() >= BUBBLE_ZOOM && updateBubbles());
+}
+// 지하철 노선·역 데이터 (지도 레이어 + 역 기반 검색 공용, 한 번만 받음)
+function getSubway() {
+  state.subwayP ??= fetch("static/subway.json").then((r) => r.json()).then((d) => {
+    state.stationIdx = Object.fromEntries(d.stations.map((s) => [s.n, s]));
+    return d;
+  }).catch(() => ({ lines: [], stations: [] }));
+  return state.subwayP;
 }
 // 구 경계 + 구 이름, 지하철 노선 + 역 (지도 위 보조 레이어)
 async function loadOverlays() {
@@ -293,7 +308,7 @@ async function loadOverlays() {
     }));
   } catch (e) { console.warn("구 경계 불러오기 실패", e); }
   try {
-    const sub = await (await fetch("static/subway.json")).json();
+    const sub = await getSubway();
     const lineR = L.canvas({ pane: "linePane" });
     state.subLines = L.layerGroup(sub.lines.map((l) =>
       L.polyline(l.segs, { color: l.color, weight: 3, opacity: 0.85, renderer: lineR, interactive: false })));
@@ -312,30 +327,90 @@ function onZoom() {
   const show = (layer, on) => layer && (on ? !m.hasLayer(layer) && layer.addTo(m) : m.hasLayer(layer) && m.removeLayer(layer));
   const sub = $("#m-subway")?.checked ?? true, gu = $("#m-gu")?.checked ?? true;
   show(state.guLayer, gu); show(state.guLabels, gu && z <= 13);
-  show(state.subLines, sub); show(state.stations, sub && z >= 12); show(state.stLabels, sub && z >= 14);
+  show(state.subLines, sub); show(state.stations, sub && z >= 12); show(state.stLabels, sub && z >= 15);
   state.subLines?.eachLayer((l) => l.setStyle({ weight: z <= 11 ? 2 : z <= 13 ? 3 : 5 }));
-  const k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : z <= 14 ? 1 : 1.3;   // 축소하면 단지 점을 작게
+  const k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : 1;   // 축소하면 단지 점을 작게
   for (const [mk, r] of state.markers || []) mk.setRadius(r * k);
+  show(state.layer, z < BUBBLE_ZOOM);          // 확대하면 점 대신 말풍선
+  updateBubbles();
+}
+const BUBBLE_ZOOM = 14;      // 이 확대 단계부터 값 말풍선, +1부터 단지명까지
+const mapItems = () => ($("#m-filter")?.checked ? filtered() : state.items).filter((i) => i.la);
+const shortWon = (man) => man == null ? null : man >= 10000 ? (man / 10000).toFixed(1).replace(/\.0$/, "") + "억" : man.toLocaleString() + "만";
+const LABELS = {
+  p84: (i) => i.p84 ? shortWon(i.p84) : i.p59 ? `59㎡ ${shortWon(i.p59)}` : i.p ? `평 ${shortWon(i.p)}` : null,
+  pp: (i) => i.p ? `평 ${shortWon(i.p)}` : null,
+  r1: (i) => i.r1 != null ? pct(i.r1) : null,
+  ls: (i) => i.ls != null ? `${i.ls}점` : null,
+  name: () => null,
+};
+function updateBubbles() {
+  const m = state.map;
+  if (!m) return;
+  state.bubbles ??= L.layerGroup().addTo(m);
+  state.bubbles.clearLayers();
+  const z = m.getZoom();
+  if (z < BUBBLE_ZOOM) return;
+  const b = m.getBounds().pad(0.1), mode = $("#m-color").value, lab = LABELS[$("#m-label")?.value || "p84"];
+  // 겹침 방지: 화면을 칸으로 나눠 칸마다 세대수가 가장 큰 단지 하나만 (확대할수록 칸이 작아져 더 많이 보임)
+  const showName = z >= BUBBLE_ZOOM + 1, [cw, ch] = showName ? (z >= 17 ? [80, 34] : [104, 40]) : [64, 26];
+  const taken = new Set(), inView = [];
+  for (const i of mapItems().filter((i) => b.contains([i.la, i.lo])).sort((x, y) => (y.h ?? 0) - (x.h ?? 0))) {
+    const pt = m.latLngToContainerPoint([i.la, i.lo]), key = `${Math.floor(pt.x / cw)},${Math.floor(pt.y / ch)}`;
+    if (taken.has(key)) continue;
+    taken.add(key); inView.push(i);
+  }
+  for (const i of inView) {
+    const v = lab(i), named = showName || !v;
+    const color = colorOf(mode, i[mode]);
+    L.marker([i.la, i.lo], { icon: L.divIcon({ className: "bub-wrap", iconSize: null, iconAnchor: [0, 0],
+        html: `<div class="bub${v ? "" : " nodata"}" style="--c:${color}">${v ? `<b>${esc(v)}</b>` : ""}${named ? `<span>${esc(i.n)}</span>` : ""}</div>` }),
+      zIndexOffset: (i.h ?? 0) })
+      .on("click", () => showPeek(i)).addTo(state.bubbles);
+  }
+}
+// 지도에서 단지를 누르면 아래에 뜨는 요약 카드
+function showPeek(i) {
+  const lt = i.lt, ct = ctOf(i);
+  $("#peek").innerHTML = `
+    <button class="peek-x" aria-label="닫기">✕</button>
+    <div class="peek-h"><b>${esc(i.n)}</b> ${isFav(i.c) ? "⭐" : ""}<div class="note">${esc(i.g)} ${esc(i.d)} ${esc(i.j)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}${i.far ? ` · 용적률 ${i.far}%` : ""}</div></div>
+    <div class="peek-g">
+      <div><small>입지점수</small><b class="lsc">${i.ls ?? "–"}</b></div>
+      <div><small>84㎡ 매매</small><b>${won(i.p84)}</b></div>
+      <div><small>84㎡ 전세</small><b>${won(i.j84)}</b></div>
+      <div><small>1년</small><b class="${cls(i.r1)}">${pct(i.r1)}</b></div>
+      <div><small>하락 방어</small><b>${i.dg ? `<span class="grade g${i.dg}">${i.dg}</span>` : "–"}</b></div>
+      <div><small>${HUB_NAMES[cwIdx()]} 출근</small><b>${ct != null ? ct + "분" : "–"}</b></div>
+    </div>
+    ${i.ls != null ? scoreBars(i) : ""}
+    <div class="peek-lt">${lt ? `최근 거래 <b>${won(lt[3])}</b> · ${lt[1]}㎡ ${lt[2]}층 · ${lt[0]}` : i.lj ? `최근 전세 <b>${won(i.lj[2])}</b> · ${i.lj[1]}㎡ · ${i.lj[0]}` : "거래 기록 없음"}
+      ${i.st ? ` · 🚇 ${esc(i.st)} ${dist(i.sd)}` : ""}</div>
+    <button class="btn" id="peek-go">상세 정보 보기 →</button>`;
+  $("#peek").hidden = false;
+  $("#peek .peek-x").onclick = () => ($("#peek").hidden = true);
+  $("#peek-go").onclick = () => openDetail(i.c);
 }
 function drawMarkers() {
   if (!state.layer) return;
   const mode = $("#m-color").value;
   state.layer.clearLayers();
   state.markers = [];
-  const z = state.map.getZoom(), k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : z <= 14 ? 1 : 1.3;
-  for (const it of state.items) {
-    if (!it.la) continue;
+  const z = state.map.getZoom(), k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : 1;
+  for (const it of mapItems()) {
     const r = it.h ? Math.min(4 + Math.sqrt(it.h) / 6, 14) : 4;
     const rm = cloud.counts[it.c];   // 지인 리마크가 있는 단지는 굵은 테두리
     const mk = L.circleMarker([it.la, it.lo], { radius: r * k, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: colorOf(mode, it[mode]), fillOpacity: 0.85 })
-      .bindTooltip(`${esc(it.n)} · 입지 ${it.ls ?? "–"} · ${won(it.p84)}`, { direction: "top" })
-      .on("click", () => openDetail(it.c))
+      .bindTooltip(`${esc(it.n)} · ${shortWon(it.p84) ?? "–"}`, { direction: "top" })
+      .on("click", () => showPeek(it))
       .addTo(state.layer);
     state.markers.push([mk, r]);
   }
   $("#legend").innerHTML = COLOR_MODES[mode].label + " " +
     [...COLOR_MODES[mode].stops.map(([, c, t]) => [c, t]), ["#9ca3af", "자료없음"]]
-      .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("");
+      .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("") +
+    `<span class="note"> · 확대하면 말풍선</span>`;
+  updateBubbles();
 }
 
 // ---------- 청약 · 입주예정 ----------
@@ -522,8 +597,14 @@ async function renderNews() {
 }
 
 // ---------- 순위 ----------
+// "강남역", "강남" 처럼 역 이름과 정확히 같으면 역 주변 검색
+function stationQuery() {
+  const q = $("#q").value.trim().replace(/\s+/g, "").replace(/역$/, "");
+  return q && state.stationIdx?.[q] ? { ...state.stationIdx[q], name: q } : null;
+}
 function filtered(ignoreGu = false) {
-  const q = $("#q").value.trim().toLowerCase();
+  const stq = stationQuery();
+  const q = stq ? "" : $("#q").value.trim().toLowerCase();
   const gu = $("#f-gu").value, budget = +$("#f-budget").value * 10000, hh = +$("#f-hh").value,
         sd = +$("#f-sd").value, es = +$("#f-es").value, age = +$("#f-age").value, n = +$("#f-n").value,
         dg = $("#f-dg").value, cm = +$("#f-cm").value;
@@ -540,17 +621,23 @@ function filtered(ignoreGu = false) {
     (!age || (age > 0 ? i.y && thisYear - i.y <= age : i.y && thisYear - i.y >= -age)) &&
     (!n || i.n12 >= n) &&
     (!dg || (i.dg && dg.includes(i.dg))) &&
-    (!cm || (ctOf(i) != null && ctOf(i) <= cm)));
+    (!cm || (ctOf(i) != null && ctOf(i) <= cm)) &&
+    (!stq || (i.la && (i._std = Math.round(kmTo(stq, i) * 1000)) <= state.stRadius)));
   const hi = (k) => (i) => -(i[k] ?? -1e9), lo = (k) => (i) => i[k] ?? 1e9;
   const key = {
     ls: hi("ls"), r1: hi("r1"), r3: hi("r3"), kp: lo("kp"), kr: lo("kr"), jr: hi("jr"), n12: hi("n12"), vt: hi("vt"),
     sd: lo("sd"), bk: lo("bk"), em: lo("em"), a1: hi("a1"), pAsc: lo("p"), pDesc: hi("p"),
     rm: (i) => -(cloud.counts[i.c]?.n ?? 0),
     df: hi("df"), dd: (i) => (i.de ? 1e8 : 0) + (i.dd ?? 1e9), ac: hi("ac"),   // 낙폭 추정치는 뒤로
-    gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"), ct: (i) => ctOf(i) ?? 1e9,
+    gpA: lo("gp"), gpD: hi("gp"), sE: hi("sE"), ct: (i) => ctOf(i) ?? 1e9, far: lo("far"), hhD: hi("h"),
   }[$("#f-sort").value];
-  return xs.sort((a, b) => key(a) - key(b));
+  return stq ? xs.sort((a, b) => a._std - b._std) : xs.sort((a, b) => key(a) - key(b));
 }
+state.stRadius = 1000;
+const kmTo = (s, i) => {
+  const r = Math.PI / 180, dy = (i.la - s.la) * r, dx = (i.lo - s.lo) * r * Math.cos(s.la * r);
+  return 6371 * Math.sqrt(dx * dx + dy * dy);
+};
 function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수치
   const s = $("#f-sort").value;
   return {
@@ -562,6 +649,7 @@ function sortMetric(i) {        // 정렬 기준에 맞는 오른쪽 아래 수�
     gpA: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)], gpD: [`모델 대비 ${pct(i.gp)}`, cls(i.gp)],
     sE: [`학군 ${i.sE ?? "–"}점`, ""],
     ct: [`${HUB_NAMES[cwIdx()]} ${ctOf(i) ?? "–"}분`, ""],
+    far: [`용적률 ${i.far ?? "–"}%`, ""], hhD: [`${i.h ? i.h.toLocaleString() : "–"}세대`, ""],
   }[s] || [`1년 ${pct(i.r1)}`, cls(i.r1)];
 }
 function remarkBadge(code) {
@@ -574,8 +662,8 @@ function itemHTML(i, rank) {
   const [m, c] = sortMetric(i);
   return `<li class="item" data-c="${i.c}">
     <div class="nm">${rank ? `<span class="rk">${rank}</span>` : ""}${isFav(i.c) ? "⭐ " : ""}${esc(i.n)}${isNew(i) ? '<span class="badge">새 거래</span>' : ""}${remarkBadge(i.c)}</div>
-    <div class="px">${i.p84 ? "84㎡ " + won(i.p84) : i.p59 ? "59㎡ " + won(i.p59) : "평당 " + won(i.p)}</div>
-    <div class="sub">${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · ${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}<br>
+    <div class="px">${i.p84 ? "84㎡ " + won(i.p84) : i.p59 ? "59㎡ " + won(i.p59) : i.p ? "평당 " + won(i.p) : i.j84 ? "전세 " + won(i.j84) : "–"}</div>
+    <div class="sub">${i._std != null && stationQuery() ? `<b class="stdist">🚇 ${esc(stationQuery().name)}역 ${dist(i._std)}</b><br>` : ""}${esc(i.g)} ${esc(i.d)} · ${i.y ?? "?"}년 · <b>${i.h ? i.h.toLocaleString() + "세대" : "세대수 ?"}</b>${i.far ? ` · 용적률 <b>${i.far}%</b>` : ""}<br>
       🚇 ${esc(i.st ?? "–")} ${dist(i.sd)}${i.sl > 1 ? ` · ${i.sl}개 노선` : ""}${ctOf(i) != null ? ` · 🏙️ ${HUB_NAMES[cwIdx()]} ${ctOf(i)}분` : ""}${i.em != null ? `<br>🎒 초 ${dist(i.em)} 중 ${dist(i.mm)} 고 ${dist(i.hm)}` : ""}</div>
     <div class="chg"><span class="lsc">${i.ls ?? "–"}<small>점</small></span><br><span class="${c}">${m}</span></div>
     ${scoreBars(i)}
@@ -630,8 +718,24 @@ function setListView(v) {
 
 function renderList() {
   if (store.get("listView", "rank") === "gu") return renderGuTable();
-  const xs = filtered();
-  $("#count").textContent = `${xs.length.toLocaleString()}개 단지` + (xs.length > 200 ? " (상위 200개 표시)" : "");
+  const xs = filtered(), stq = stationQuery();
+  const q = $("#q").value.trim().replace(/\s+/g, "").replace(/역$/, "");
+  const sugg = !stq && q && state.stationIdx ? Object.keys(state.stationIdx).filter((n) => n.startsWith(q)).slice(0, 5) : [];
+  $("#count").innerHTML = stq
+    ? `<div class="card st-banner">🚇 <b>${esc(stq.name)}역</b> 반경 ${[500, 1000, 1500].map((r) =>
+        `<button class="chip${state.stRadius === r ? " on" : ""}" data-r="${r}">${r >= 1000 ? r / 1000 + "km" : r + "m"}</button>`).join("")}
+        · <b>${xs.length.toLocaleString()}</b>개 단지 <span class="note">(가까운 순)</span>
+        <button class="chip" id="st-map">🗺️ 지도에서 보기</button></div>`
+    : (sugg.length ? `<div class="st-sugg">${sugg.map((n) => `<button class="chip" data-st="${esc(n)}">🚇 ${esc(n)}역 주변</button>`).join("")}</div>` : "")
+      + `${xs.length.toLocaleString()}개 단지` + (xs.length > 200 ? " (상위 200개 표시)" : "");
+  $$("#count [data-r]").forEach((b) => (b.onclick = () => { state.stRadius = +b.dataset.r; renderList(); }));
+  $$("#count [data-st]").forEach((b) => (b.onclick = () => { $("#q").value = b.dataset.st + "역"; renderList(); }));
+  if ($("#st-map")) $("#st-map").onclick = () => {
+    showTab("map"); $("#m-filter").checked = true; drawMarkers();
+    state.map.setView([stq.la, stq.lo], state.stRadius > 1000 ? 14 : 15);
+    state.stCircle?.remove();
+    state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#0f766e", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
+  };
   $("#list").innerHTML = xs.length ? xs.slice(0, 200).map((i, k) => itemHTML(i, k + 1)).join("")
     : `<div class="empty">조건에 맞는 단지가 없습니다</div>`;
   bindItems($("#list"));
@@ -715,6 +819,7 @@ async function renderDetail(code) {
       <div class="stat"><small>거래(1년)</small><b>${i.n12}건 <small class="${cls(i.vt)}">${i.vt != null ? pct(i.vt) : ""}</small></b></div>
       <div class="stat"><small>준공</small><b>${i.y ?? "–"}년</b></div>
       <div class="stat"><small>세대수</small><b>${i.h ? i.h.toLocaleString() : "–"}</b></div>
+      <div class="stat"><small>용적률 · 건폐율</small><b>${i.far ? `${i.far}% · ${i.bcr ?? "–"}%` : "–"}</b></div>
       <div class="stat"><small>${esc(i.bz ?? "업무지구")}까지</small><b>${i.bk != null ? i.bk + "km" : "–"}</b></div>
     </div>
     <div class="card"><h3>시세 · 거래량 <span class="note">월별 중앙값 · 막대=거래건수</span></h3>
@@ -993,6 +1098,15 @@ const GUIDE = [
       84㎡ 기준 차익 = 주변 84㎡ 시세 − 84㎡ 분양가.</div>
     <div class="note">옵션·발코니 확장비 제외. 전매제한·실거주의무·자금조달은 반드시 모집공고문에서 확인하세요.
       경쟁률·당첨가점은 1순위 해당지역(서울 거주) 기준입니다.</div>`],
+  ["howto", "🗺️ 지도·검색 사용법", `
+    <ul>
+      <li><b>지도 확대</b>: 단지 점이 <b>말풍선</b>으로 바뀌어 값(84㎡ 시세 등)이 보이고, 한 단계 더 확대하면 <b>단지명</b>까지 나옵니다.
+        말풍선 내용은 왼쪽 위에서 시세·평당가·상승률·입지점수·단지명 중 고를 수 있습니다. 겹치는 곳은 세대수가 큰 단지가 먼저 보입니다.</li>
+      <li><b>단지 누르기</b>: 아래에 요약 카드(입지점수·시세·전세·상승률·방어등급·출근 시간·최근 거래)가 뜨고, "상세 정보 보기"로 전체 정보를 봅니다.</li>
+      <li><b>⚙️ 설정</b>: "순위 탭 필터를 지도에도 적용"을 켜면 예산·세대수 등 순위 탭에서 건 조건에 맞는 단지만 지도에 표시됩니다.</li>
+      <li><b>역으로 찾기</b>: 검색창에 "강남역"처럼 역 이름을 치면 그 역 반경 500m·1km·1.5km 안 단지가 가까운 순으로 나옵니다.</li>
+      <li><b>용적률</b>: 건축물대장 기준. 낮을수록 재건축 때 더 지을 여지가 큽니다 (재건축 사업성 참고).</li>
+    </ul>`],
   ["limit", "⚠️ 꼭 알아둘 한계", `
     <ul>
       <li>모든 점수는 <b>과거 데이터 기반 참고 지표</b>이며 미래 수익을 보장하지 않습니다. 투자 판단은 본인 책임입니다.</li>

@@ -19,7 +19,7 @@
 <header class="top">
   <div class="brand-row"><div class="brand">서울 아파트 입지</div>
     <div><a href="#guide" class="auth-btn" style="text-decoration:none">📖 가이드</a> <button id="auth-btn" class="auth-btn">로그인</button></div></div>
-  <input id="q" type="search" placeholder="단지명 · 동 · 역 검색" autocomplete="off">
+  <input id="q" type="search" placeholder="단지명 · 동 · 지번 · '강남역'처럼 역 이름으로 주변 검색" autocomplete="off">
 </header>
 
 <main>
@@ -34,14 +34,21 @@
         <option value="df">색: 하락 방어력</option>
         <option value="ac">색: 출근 접근성</option>
       </select>
-      <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정</label>
+      <select id="m-label">
+        <option value="p84">말풍선: 84㎡ 시세</option><option value="pp">말풍선: 평당가</option>
+        <option value="r1">말풍선: 1년 상승률</option><option value="ls">말풍선: 입지점수</option><option value="name">말풍선: 단지명만</option>
+      </select>
+      <button class="chk" id="m-more" aria-label="지도 설정">⚙️</button>
     </div>
-    <div class="map-ctl map-ctl2">
-      <label class="chk"><input type="checkbox" id="m-subway" checked> 지하철</label>
+    <div class="map-ctl map-panel" id="m-panel" hidden>
+      <label class="chk"><input type="checkbox" id="m-filter"> 순위 탭 필터를 지도에도 적용</label>
+      <label class="chk"><input type="checkbox" id="m-supply"> 청약·입주예정 표시</label>
+      <label class="chk"><input type="checkbox" id="m-subway" checked> 지하철 노선·역</label>
       <label class="chk"><input type="checkbox" id="m-gu" checked> 구 경계</label>
-      <select id="m-base"><option value="clean">지도: 깔끔</option><option value="color">지도: 컬러</option></select>
+      <select id="m-base"><option value="clean">배경지도: 깔끔</option><option value="color">배경지도: 컬러</option></select>
     </div>
     <div class="legend" id="legend"></div>
+    <div class="peek" id="peek" hidden></div>
   </section>
 
   <section id="tab-list" class="tab">
@@ -77,6 +84,10 @@
           <option value="sE">학군 점수 높은 순 (초중고+학원)</option>
           <option value="em">초등학교 가까운 순</option>
           <option value="a1">학원 많은 순</option>
+        </optgroup>
+        <optgroup label="단지">
+          <option value="hhD">세대수 많은 순</option>
+          <option value="far">용적률 낮은 순 (재건축 여력)</option>
         </optgroup>
         <optgroup label="지인">
           <option value="rm">리마크 많은 순</option>

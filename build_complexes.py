@@ -33,6 +33,7 @@ APT_INFO_URL = "https://apis.data.go.kr/1613000/AptBasisInfoServiceV5/getAphusBa
 KAKAO_ADDR_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 KAKAO_CATEGORY_URL = "https://dapi.kakao.com/v2/local/search/category.json"
+BLD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/"   # 건축물대장 (활용신청 필요)
 
 # 3대 업무지구 기준점
 CBD = {"광화문": (37.5711, 126.9768), "강남": (37.4979, 127.0276), "여의도": (37.5216, 126.9242)}
@@ -44,6 +45,7 @@ COMPLEX_FIELDS = [
     "업무지구최근접", "업무지구거리km", "광화문km", "강남km", "여의도km",
     "kaptCode", "kapt단지명", "세대수", "동수", "최고층", "사용승인일", "건설사", "난방", "kapt매칭",
     "초등학교", "초등학교m", "중학교", "중학교m", "고등학교", "고등학교m", "학원수500m", "학원수1km", "최근거래일",
+    "용적률", "건폐율", "대지면적", "연면적",
 ]
 KAPT_FIELDS = ["kaptCode", "bjdCode", "kaptName", "kaptAddr", "doroJuso", "세대수", "동수",
                "최고층", "사용승인일", "건설사", "난방", "분양구분"]
@@ -102,7 +104,7 @@ def complexes_from_trades():
             code = r["단지코드"]
             if code and (code not in latest or r["계약일"] >= latest[code]["계약일"]):
                 latest[code] = r
-    return {
+    out = {
         code: {
             "단지코드": code, "구": r["구"], "법정동": r["법정동"],
             "법정동코드": r["시군구코드"] + r["법정동코드"], "지번": r["지번"],
@@ -110,6 +112,21 @@ def complexes_from_trades():
         }
         for code, r in latest.items()
     }
+    # 매매 기록 없이 전월세만 있는 단지도 포함 (전월세 자료엔 법정동코드가 없어 매매 자료의 구·동 이름으로 찾음)
+    bjd = {(v["구"], v["법정동"]): v["법정동코드"] for v in out.values()}
+    rent_latest = {}
+    for path in sorted((ROOT / "data" / "rent").glob("*.csv")):
+        for r in read_csv(path):
+            code = r["단지코드"]
+            if code and code not in out and (code not in rent_latest or r["계약일"] >= rent_latest[code]["계약일"]):
+                rent_latest[code] = r
+    for code, r in rent_latest.items():
+        out[code] = {
+            "단지코드": code, "구": r["구"], "법정동": r["법정동"],
+            "법정동코드": bjd.get((r["구"], r["법정동"]), ""), "지번": r["지번"],
+            "아파트명": r["아파트명"], "건축년도": r["건축년도"], "최근거래일": r["계약일"],
+        }
+    return out
 
 
 # ---------- K-apt ----------
@@ -213,6 +230,28 @@ def stations(kakao, lat, lon):
     return docs[0]["place_name"], int(docs[0]["distance"]), len(lines)
 
 
+def building(key, bjd, jibun):
+    """건축물대장 → 용적률·건폐율·대지면적·연면적. 총괄표제부(단지 전체) 우선, 없으면 표제부 중 가장 큰 동.
+    반환: dict / None(자료 없음) / 예외 PermissionError(API 미승인)"""
+    m = re.match(r"(산)?(\d+)(?:-(\d+))?", (jibun or "").strip())
+    if not bjd or not m:
+        return None
+    params = {"serviceKey": key, "sigunguCd": bjd[:5], "bjdongCd": bjd[5:], "platGbCd": "1" if m.group(1) else "0",
+              "bun": m.group(2).zfill(4), "ji": (m.group(3) or "0").zfill(4), "numOfRows": 100, "pageNo": 1, "_type": "json"}
+    for op in ("getBrRecapTitleInfo", "getBrTitleInfo"):
+        r = requests.get(BLD_URL + op, params=params, timeout=30)
+        if r.status_code in (401, 403):
+            raise PermissionError("건축물대장 API 미승인")
+        items = ((r.json().get("response", {}).get("body", {}).get("items") or {}) or {}).get("item") or []
+        items = items if isinstance(items, list) else [items]
+        items = [i for i in items if float(i.get("vlRat") or 0) > 0]
+        if items:
+            it = max(items, key=lambda i: float(i.get("totArea") or 0))
+            return {"용적률": round(float(it["vlRat"]), 1), "건폐율": round(float(it.get("bcRat") or 0), 1),
+                    "대지면적": round(float(it.get("platArea") or 0)), "연면적": round(float(it.get("totArea") or 0))}
+    return {"용적률": "없음"}
+
+
 def schools(kakao, lat, lon):
     """가장 가까운 초·중·고등학교와 학원 수 (카카오 카테고리 검색: SC4 학교, AC5 학원)"""
     h = {"Authorization": "KakaoAK " + kakao}
@@ -263,7 +302,7 @@ def main():
             save()
             print(f"⏸  시간 예산 소진 — {i - 1:,}/{len(todo):,}개 처리, 나머지는 다음 실행에서")
             sys.exit(3)   # 남은 작업 있음 (워크플로가 저장 후 다시 실행)
-        k, how = match_kapt(c, kapt.by_bjd(c["법정동코드"]))
+        k, how = match_kapt(c, kapt.by_bjd(c["법정동코드"])) if c["법정동코드"] else (None, "법정동코드 없음")
         lat, lon, src = geocode(kakao, c, k)
         row = {**c, "위도": lat or "", "경도": lon or "", "좌표출처": src, "kapt매칭": how}
         if lat:
@@ -283,6 +322,21 @@ def main():
             print(f"  {i:,}/{len(todo):,} 저장", flush=True)
 
     # 학군 정보가 비어 있는 단지 채우기 (나중에 추가된 열이라 예전 단지도 여기서 처리)
+    # 용적률 (건축물대장) — 비어 있는 단지만. API가 아직 승인 전이면 조용히 건너뜀
+    need_far = [r for r in existing.values() if not r.get("용적률")]
+    need_far.sort(key=lambda r: r.get("최근거래일") or "", reverse=True)
+    try:
+        for i, r in enumerate(need_far, 1):
+            if time.time() > deadline:
+                save()
+                sys.exit(3)
+            r.update(building(service_key, r.get("법정동코드"), r.get("지번")) or {"용적률": "없음"})
+            if i % 300 == 0 or i == len(need_far):
+                save()
+                print(f"  용적률 {i:,}/{len(need_far):,} 저장", flush=True)
+    except PermissionError:
+        print("ℹ️  건축물대장 API 미승인 — 용적률 건너뜀 (공공데이터포털 '국토교통부_건축HUB_건축물대장정보 서비스' 활용신청 시 자동 수집)")
+
     # (학교 이름 칸이 비어 있음 = 아직 조회 안 함. 2km 안에 학교가 없으면 "없음"으로 기록)
     need = [r for r in existing.values() if r.get("위도") and (not r.get("학원수1km") or not r.get("고등학교"))]
     need.sort(key=lambda r: r.get("최근거래일") or "", reverse=True)

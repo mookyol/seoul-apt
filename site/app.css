@@ -104,7 +104,40 @@ textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-
 .map-ctl select, .chk { background: var(--card); border: 0; border-radius: 10px; padding: 7px 10px; font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,.15); }
 .chk { display: flex; gap: 4px; align-items: center; }
-.map-ctl2 { top: 52px; }
+.map-panel { top: 52px; flex-direction: column; align-items: stretch; background: var(--card); border-radius: 12px;
+  padding: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.2); gap: 4px; }
+.map-panel .chk, .map-panel select { box-shadow: none; padding: 5px 4px; }
+#m-more { cursor: pointer; border: 0; }
+.map-ctl { max-width: calc(100% - 64px); flex-wrap: wrap; }
+.map-ctl select { max-width: 150px; }
+.legend { max-width: calc(100% - 20px); white-space: normal; line-height: 1.8; }
+/* 확대 시 단지 말풍선 (네이버·카카오 스타일) */
+.bub-wrap { background: none; border: 0; }
+.bub { transform: translate(-50%, -100%); display: inline-flex; flex-direction: column; align-items: center; white-space: nowrap;
+  background: var(--c); color: #fff; border-radius: 8px; padding: 2px 7px; font-size: 12px; line-height: 1.25;
+  box-shadow: 0 1px 4px rgba(0,0,0,.3); position: relative; cursor: pointer; }
+.bub::after { content: ""; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--c); border-bottom: 0; }
+.bub b { font-weight: 800; }
+.bub span { font-size: 11px; opacity: .95; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.bub.nodata { background: #fff; color: #334155; border: 1px solid #cbd5e1; }
+.bub.nodata::after { border-top-color: #cbd5e1; }
+/* 지도 단지 요약 카드 */
+.peek { position: absolute; left: 10px; right: 10px; bottom: 42px; z-index: 600; background: var(--card); border-radius: 16px;
+  padding: 12px 14px; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: 520px; margin: 0 auto; }
+.peek-x { position: absolute; right: 10px; top: 8px; border: 0; background: none; font-size: 16px; color: var(--sub); cursor: pointer; }
+.peek-h b { font-size: 17px; }
+.peek-g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+.peek-g div { background: var(--bg); border-radius: 10px; padding: 6px 8px; }
+.peek-g small { display: block; color: var(--sub); font-size: 11px; }
+.peek-g b { font-size: 15px; }
+.peek-lt { font-size: 13px; margin-top: 6px; color: var(--sub); }
+.peek-lt b { color: var(--text); }
+.st-banner { margin: 0 0 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text); }
+.st-banner .chip, .st-sugg .chip { padding: 3px 10px; font-size: 13px; cursor: pointer; border: 1px solid var(--line); background: var(--card); border-radius: 999px; }
+.st-banner .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+.st-sugg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.stdist { color: var(--brand); }
 .gu-label { font-size: 13px; font-weight: 800; color: #1e293b; white-space: nowrap; transform: translate(-50%, -50%);
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; letter-spacing: -0.3px; }
 .st-label { font-size: 11px; font-weight: 700; color: #111827; white-space: nowrap;

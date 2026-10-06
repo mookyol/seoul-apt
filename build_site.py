@@ -61,6 +61,8 @@ def km(a, b):
 def display_name(name, dong, kapt):
     """실거래 신고명("미륭", "현대")은 너무 짧아 구분이 안 됨 → 흔히 부르는 이름("월계미륭", "무악현대")으로"""
     name = (name or "").strip()
+    if not name or re.fullmatch(r"[\d\-()\s.]+", name):      # "(1-10)" 처럼 번지만 있는 신고명
+        return f"{dong} {name.strip('()')} 아파트".replace("  ", " ")
     if len(name) > 4:
         return name
     k = re.sub(r"\(.*?\)|아파트$", "", kapt or "").strip()
@@ -218,18 +220,21 @@ def main():
     shutil.rmtree(OUT, ignore_errors=True)
     (OUT / "c").mkdir(parents=True)
 
-    # 단지 정보표에 아직 없는 단지는 매매 기록의 기본 정보로 목록·검색에 먼저 노출 (좌표가 생기면 지도에도 표시)
+    # 모든 단지(매매 + 전월세만 있는 단지)를 목록·검색에 노출. 단지 정보표에 아직 없으면 거래 기록의 기본 정보 사용
     basic = {}
-    for path in sorted((ROOT / "data" / "trades").glob("*.csv"))[-36:]:
-        for r in read_csv(path):
-            basic[r["단지코드"]] = {"단지코드": r["단지코드"], "아파트명": r["아파트명"], "구": r["구"],
-                                   "법정동": r["법정동"], "지번": r["지번"], "건축년도": r["건축년도"]}
+    for kind in ("rent", "trades"):          # 매매 기록이 있으면 그 정보가 우선 (나중에 덮어씀)
+        for path in sorted((ROOT / "data" / kind).glob("*.csv")):
+            for r in read_csv(path):
+                if r["단지코드"]:
+                    basic[r["단지코드"]] = {"단지코드": r["단지코드"], "아파트명": r["아파트명"], "구": r["구"],
+                                           "법정동": r["법정동"], "지번": r["지번"], "건축년도": r["건축년도"]}
 
     summary, details = [], {}
-    for code, ts in by_code.items():
+    for code in sorted(set(by_code) | set(basic)):
+        ts = by_code.get(code, [])
         ci = info.get(code) if info.get(code, {}).get("위도") else basic.get(code)
         if not ci:
-            continue  # 최근 3년간 거래가 없고 단지 정보도 없는 단지
+            continue
         js = j_by_code.get(code, [])
         recent = [t for t in ts if t["date"] >= w0]
         j_recent = [t for t in js if t["date"] >= w0]
@@ -245,7 +250,10 @@ def main():
 
         def num(k):
             v = ci.get(k)
-            return float(v) if v not in (None, "") else None
+            try:
+                return float(v) if v not in (None, "") else None
+            except ValueError:      # "없음" 등
+                return None
 
         summary.append({
             "c": code, "n": display_name(ci["아파트명"], ci["법정동"], ci.get("kapt단지명")),
@@ -270,7 +278,12 @@ def main():
             "gap84": p84 - j84 if p84 and j84 else None,                          # 84㎡ 매매-전세
             "r1": change(p_now, p_1y), "r3": change(p_now, p_3y),
             "n12": len(recent), "vt": change(len(recent), n_prev),               # 거래량 1년 변화
-            "last": max(t["date"] for t in ts),
+            "last": max((t["date"] for t in ts), default=None),
+            "lt": (lambda t: [t["date"], round(t["area"], 1), t["floor"], t["price"]])(max(ts, key=lambda t: t["date"]))
+                  if ts else None,                                                  # 최근 매매 거래
+            "lj": (lambda t: [t["date"], round(t["area"], 1), t["price"]])(max(js, key=lambda t: t["date"]))
+                  if js else None,                                                  # 최근 전세 거래
+            "far": num("용적률"), "bcr": num("건폐율"),                             # 용적률·건폐율 (건축물대장)
             **value_fields(value.get(code)),
         })
 
