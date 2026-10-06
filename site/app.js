@@ -187,6 +187,10 @@ async function init() {
   $("#m-label").addEventListener("change", () => { store.set("mlabel", $("#m-label").value); updateBubbles(); });
   $("#m-more").addEventListener("click", () => { $("#m-panel").hidden = !$("#m-panel").hidden; $("#mq-panel").hidden = true; });
   $("#m-filter").addEventListener("change", drawMarkers);
+  $("#m-price").addEventListener("click", () => setPriceMode(!priceOn()));
+  $("#m-price").textContent = priceOn() ? "💰 가격 ON" : "💰 가격 OFF";
+  $("#m-price").classList.toggle("off", !priceOn());
+  $("#m-color").hidden = $("#m-label").hidden = !priceOn();
   // 지도 빠른 필터 (선택은 이 기기에 기억)
   const MQ = ["mq-view", "mq-hh", "mq-price", "mq-age", "mq-recent", "mq-small", "m-favpin"];
   const mqSave = () => store.set("mq", Object.fromEntries(MQ.map((id) => [id, $("#" + id).type === "checkbox" ? $("#" + id).checked : $("#" + id).value])));
@@ -410,6 +414,16 @@ const LABELS = {
   ls: (i) => i.ls != null ? `${i.ls}점` : null,
   name: () => null,
 };
+// 💰 가격 표시 켜기/끄기 — 끄면 단지 이름·위치만
+const priceOn = () => store.get("mprice", true);
+function setPriceMode(on) {
+  store.set("mprice", on);
+  const b = $("#m-price");
+  if (b) { b.textContent = on ? "💰 가격 ON" : "💰 가격 OFF"; b.classList.toggle("off", !on); }
+  $("#m-color").hidden = $("#m-label").hidden = !on;
+  drawMarkers();
+}
+const PLAIN = "#475569";
 function updateBubbles() {
   const m = state.map;
   if (!m) return;
@@ -417,9 +431,9 @@ function updateBubbles() {
   state.bubbles.clearLayers();
   const z = m.getZoom();
   if (z < BUBBLE_ZOOM) return;
-  const b = m.getBounds().pad(0.1), mode = $("#m-color").value, lab = LABELS[$("#m-label")?.value || "p84"];
+  const b = m.getBounds().pad(0.1), mode = $("#m-color").value, on = priceOn(), lab = on ? LABELS[$("#m-label")?.value || "p84"] : () => null;
   // 겹침 방지: 화면을 칸으로 나눠 칸마다 세대수가 가장 큰 단지 하나만 (확대할수록 칸이 작아져 더 많이 보임)
-  const showName = z >= BUBBLE_ZOOM + 1, [cw, ch] = showName ? (z >= 17 ? [80, 34] : [104, 40]) : [64, 26];
+  const showName = z >= BUBBLE_ZOOM + 1 || !on, [cw, ch] = showName ? (z >= 17 ? [80, 34] : [104, 40]) : [64, 26];
   const taken = new Set(), inView = [];
   for (const i of mapItems().filter((i) => b.contains([i.la, i.lo])).sort((x, y) => (y.h ?? 0) - (x.h ?? 0))) {
     const pt = m.latLngToContainerPoint([i.la, i.lo]), key = `${Math.floor(pt.x / cw)},${Math.floor(pt.y / ch)}`;
@@ -428,9 +442,9 @@ function updateBubbles() {
   }
   for (const i of inView) {
     const v = lab(i), named = showName || !v;
-    const color = colorOf(mode, i[mode]);
+    const color = on ? colorOf(mode, i[mode]) : PLAIN;
     L.marker([i.la, i.lo], { icon: L.divIcon({ className: "bub-wrap", iconSize: null, iconAnchor: [0, 0],
-        html: `<div class="bub${v ? "" : " nodata"}" style="--c:${color}">${v ? `<b>${esc(v)}</b>` : ""}${named ? `<span>${esc(i.n)}</span>` : ""}</div>` }),
+        html: `<div class="bub${v ? "" : on ? " nodata" : " plain"}" style="--c:${color}">${v ? `<b>${esc(v)}</b>` : ""}${named ? `<span>${esc(i.n)}</span>` : ""}</div>` }),
       zIndexOffset: (i.h ?? 0) })
       .on("click", () => showPeek(i)).addTo(state.bubbles);
   }
@@ -495,18 +509,18 @@ function drawMarkers() {
   const mode = $("#m-color").value;
   state.layer.clearLayers();
   state.markers = [];
-  const z = state.map.getZoom(), k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : 1;
+  const z = state.map.getZoom(), k = z <= 10 ? 0.45 : z <= 11 ? 0.6 : z <= 12 ? 0.8 : 1, on = priceOn();
   for (const it of mapItems()) {
     const r = it.h ? Math.min(4 + Math.sqrt(it.h) / 6, 14) : 4;
     const rm = cloud.counts[it.c];   // 지인 리마크가 있는 단지는 굵은 테두리
-    const mk = L.circleMarker([it.la, it.lo], { radius: r * k, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: colorOf(mode, it[mode]), fillOpacity: 0.85 })
-      .bindTooltip(`${esc(it.n)} · ${shortWon(it.p84) ?? "–"}`, { direction: "top" })
+    const mk = L.circleMarker([it.la, it.lo], { radius: r * k, weight: rm ? 3 : 1, color: rm ? "#111827" : "#fff", fillColor: on ? colorOf(mode, it[mode]) : PLAIN, fillOpacity: on ? 0.85 : 0.6 })
+      .bindTooltip(on ? `${esc(it.n)} · ${shortWon(it.p84) ?? "–"}` : esc(it.n), { direction: "top" })
       .on("click", () => showPeek(it))
       .addTo(state.layer);
     state.markers.push([mk, r]);
   }
   drawFavPins(); drawCmpPins();
-  $("#legend").innerHTML = COLOR_MODES[mode].label + " " +
+  $("#legend").innerHTML = !on ? `📍 단지 위치만 보는 중 <span class="note">· 💰 버튼으로 가격 다시 켜기</span>` : COLOR_MODES[mode].label + " " +
     [...COLOR_MODES[mode].stops.map(([, c, t]) => [c, t]), ["#9ca3af", "자료없음"]]
       .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("") +
     `<span class="note"> · 확대하면 말풍선</span>`;

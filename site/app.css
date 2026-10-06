@@ -343,3 +343,6 @@ body.has-cmp .legend { bottom: 70px; }
 .rsave { width: 100%; margin: 0 0 12px; }
 .sh-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .sh-actions > * { flex: none; white-space: nowrap; }
+
+#m-price.off { background: #475569; color: #fff; }
+.bub.plain { background: var(--card); color: var(--text); border: 1px solid #94a3b8; font-weight: 600; }
