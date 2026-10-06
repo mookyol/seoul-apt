@@ -18,6 +18,24 @@ const toggleFav = (c) => {
 const memo = (c) => store.get("memo:" + c, "");
 const cmps = () => store.get("cmp", []);
 const inCmp = (c) => cmps().includes(c);
+const CMP_COLORS = ["#0f766e", "#f59e0b", "#6366f1", "#e11d48"];
+const CMP_NUM = ["①", "②", "③", "④"];
+function toggleCmp(code) {
+  let xs = cmps();
+  if (xs.includes(code)) xs = xs.filter((x) => x !== code);
+  else {
+    if (xs.length >= 4) {
+      const old = state.byCode[xs[0]]?.n ?? "첫 번째 단지";
+      if (!confirm(`비교는 4개까지예요. 가장 먼저 담은 "${old}"을(를) 빼고 담을까요?`)) return false;
+      xs = xs.slice(1);
+    }
+    xs = [...xs, code];
+  }
+  store.set("cmp", xs);
+  renderCmpBar();
+  if (state.map) drawCmpPins();
+  return true;
+}
 const seen = () => store.get("seen", {});
 const isNew = (i) => isFav(i.c) && seen()[i.c] && i.last > seen()[i.c];
 
@@ -183,7 +201,6 @@ async function init() {
   $("#f-small").addEventListener("change", () => { renderList(); $("#m-filter").checked && drawMarkers(); });
   $$("#tab-list .filters select").forEach((sel) => sel.addEventListener("change", () => $("#m-filter").checked && drawMarkers()));
   getSubway().then(() => stationQuery() && renderList());   // 역 이름 검색용
-  $("#cmp-bar").addEventListener("click", () => (location.hash = "cmp"));
   window.addEventListener("hashchange", route);
   $("#m-color").value = store.get("mcolor", "ls");
 
@@ -418,6 +435,18 @@ function updateBubbles() {
       .on("click", () => showPeek(i)).addTo(state.bubbles);
   }
 }
+const cmpIcon = (k) => L.divIcon({ className: "pin-wrap", iconSize: null, iconAnchor: [15, 38],
+  html: `<div class="cmp-pin" style="--c:${CMP_COLORS[k]}">${k + 1}</div>` });
+function drawCmpPins() {
+  state.cmpLayer ??= L.layerGroup().addTo(state.map);
+  state.cmpLayer.clearLayers();
+  cmps().forEach((c, k) => {
+    const i = state.byCode[c];
+    if (!i?.la) return;
+    L.marker([i.la, i.lo], { icon: cmpIcon(k), zIndexOffset: 7000 }).bindTooltip(esc(i.n), { direction: "top", offset: [0, -30] })
+      .on("click", () => showPeek(i)).addTo(state.cmpLayer);
+  });
+}
 function drawFavPins() {
   state.favLayer ??= L.layerGroup().addTo(state.map);
   state.favLayer.clearLayers();
@@ -451,10 +480,12 @@ function showPeek(i) {
     <div class="peek-lt">${lt ? `최근 거래 <b>${won(lt[3])}</b> · ${lt[1]}㎡ ${lt[2]}층 · ${lt[0]}` : i.lj ? `최근 전세 <b>${won(i.lj[2])}</b> · ${i.lj[1]}㎡ · ${i.lj[0]}` : "거래 기록 없음"}
       ${i.st ? ` · 🚇 ${esc(i.st)} ${dist(i.sd)}` : ""}</div>
     <div class="peek-links">${listingLinks(i)}</div>
-    <button class="btn" id="peek-go">상세 정보 보기 →</button>`;
+    <div class="peek-btns"><button class="btn sub${inCmp(i.c) ? " on" : ""}" id="peek-cmp">${inCmp(i.c) ? `${CMP_NUM[cmps().indexOf(i.c)]} 비교에서 빼기` : "📊 비교 담기"}</button>
+      <button class="btn" id="peek-go">상세 보기 →</button></div>`;
   $("#peek").hidden = false;
   $("#peek .peek-x").onclick = () => ($("#peek").hidden = true);
   $("#peek-go").onclick = () => openDetail(i.c);
+  $("#peek-cmp").onclick = () => { if (toggleCmp(i.c)) showPeek(i); };
 }
 // 실시간 매물은 공개 API가 없어 네이버부동산·호갱노노 검색으로 연결
 const listingLinks = (i) => `<a href="https://m.land.naver.com/search/result/${encodeURIComponent(i.g + " " + i.n)}" target="_blank" rel="noopener">🏷️ 네이버 매물</a>
@@ -474,7 +505,7 @@ function drawMarkers() {
       .addTo(state.layer);
     state.markers.push([mk, r]);
   }
-  drawFavPins();
+  drawFavPins(); drawCmpPins();
   $("#legend").innerHTML = COLOR_MODES[mode].label + " " +
     [...COLOR_MODES[mode].stops.map(([, c, t]) => [c, t]), ["#9ca3af", "자료없음"]]
       .map(([c, t]) => `<i style="background:${c}"></i>${t}`).join("") +
@@ -887,9 +918,20 @@ function renderFav() {
   if ($("#tab-fav").classList.contains("active")) renderFeed();
 }
 function renderCmpBar() {
-  const n = cmps().length;
-  $("#cmp-bar").hidden = n === 0;
-  $("#cmp-bar").textContent = `📊 단지 비교 (${n})`;
+  const xs = cmps().filter((c) => state.byCode[c]);
+  const bar = $("#cmp-bar");
+  bar.hidden = xs.length === 0;
+  document.body.classList.toggle("has-cmp", xs.length > 0);
+  bar.innerHTML = `<div class="cmp-chips">${xs.map((c, k) => `<span class="cmp-chip" style="--c:${CMP_COLORS[k]}" data-go="${esc(c)}">
+      <b>${k + 1}</b>${esc(state.byCode[c].n)}<button data-rm="${esc(c)}" aria-label="빼기">✕</button></span>`).join("")}</div>
+    <button class="cmp-go" ${xs.length < 2 ? "disabled" : ""}>${xs.length < 2 ? "1개 더 담기" : `비교하기 (${xs.length})`}</button>`;
+  $$("#cmp-bar [data-rm]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); toggleCmp(b.dataset.rm); }));
+  $$("#cmp-bar [data-go]").forEach((b) => (b.onclick = () => {
+    const i = state.byCode[b.dataset.go];
+    if (state.map && i.la && $("#tab-map").classList.contains("active")) { state.map.setView([i.la, i.lo], Math.max(state.map.getZoom(), 15)); showPeek(i); }
+    else openDetail(i.c);
+  }));
+  $("#cmp-bar .cmp-go").onclick = () => (location.hash = "cmp");
 }
 
 // ---------- 라우팅 (#c=단지코드 / #s=청약공고 / #cmp / #join) ----------
@@ -1004,11 +1046,9 @@ async function renderDetail(code) {
     renderList(); renderFav(); state.map && drawFavPins();
   };
   $("#cmp-btn").onclick = (e) => {
-    if (!inCmp(code) && cmps().length >= 4) return alert("비교는 최대 4개 단지까지 가능합니다");
-    store.set("cmp", inCmp(code) ? cmps().filter((x) => x !== code) : [...cmps(), code]);
+    if (!toggleCmp(code)) return;
     e.currentTarget.classList.toggle("on", inCmp(code));
     e.currentTarget.textContent = "📊 " + (inCmp(code) ? "비교에서 빼기" : "비교에 추가");
-    renderCmpBar();
   };
   $("#memo").oninput = (e) => { store.set("memo:" + code, e.target.value); cloud.setMemo(code, e.target.value); };
   renderRemarks(code);
@@ -1341,29 +1381,51 @@ function renderScorecard() {
 async function renderCompare() {
   const codes = cmps().filter((c) => state.byCode[c]);
   const xs = codes.map((c) => state.byCode[c]);
-  const palette = ["#0f766e", "#f59e0b", "#6366f1", "#e11d48"];
+  const palette = CMP_COLORS;
+  // 각 행: [이름, 표시, 비교값, 좋은 방향(1 클수록·-1 작을수록)]
   const rows = [
-    ["입지점수", (i) => i.ls ?? "–"], ["출근/규모/학군/역", (i) => `${i.sA ?? "–"}/${i.sH ?? "–"}/${i.sE ?? "–"}/${i.sS ?? "–"}`],
+    ["입지점수", (i) => i.ls ?? "–", (i) => i.ls, 1], ["출근/규모/학군/역", (i) => `${i.sA ?? "–"}/${i.sH ?? "–"}/${i.sE ?? "–"}/${i.sS ?? "–"}`],
     ["초·중·고", (i) => `${dist(i.em)}<br>${dist(i.mm)}<br>${dist(i.hm)}`],
     ["84㎡ 매매", (i) => won(i.p84)], ["84㎡ 전세", (i) => won(i.j84)], ["전세가율", (i) => i.jr != null ? i.jr + "%" : "–"],
-    ["평당가", (i) => won(i.p)], ["1년", (i) => `<span class="${cls(i.r1)}">${pct(i.r1)}</span>`],
-    ["3년", (i) => `<span class="${cls(i.r3)}">${pct(i.r3)}</span>`], ["주변대비", (i) => pct(i.kp)],
-    ["준공", (i) => i.y ?? "–"], ["세대수", (i) => i.h?.toLocaleString() ?? "–"],
-    ["역", (i) => `${esc(i.st ?? "–")}<br>${dist(i.sd)}`], ["초등학교", (i) => dist(i.em)], ["학원(1km)", (i) => i.a1 ?? "–"],
-    ["거래(1년)", (i) => i.n12], ["하락 방어력", (i) => i.dg ? `${i.dg} (${i.df})` : "–"],
-    ["'22 낙폭", (i) => i.dd != null ? `-${i.dd}%${i.de ? "*" : ""}` : "–"], ["출근 접근성", (i) => i.ac ?? "–"], ["출근(분) 강남/광화문/여의도", (i) => i.ct ? `${i.ct[1]}/${i.ct[0]}/${i.ct[2]}` : "–"],
+    ["평당가", (i) => won(i.p)], ["1년", (i) => `<span class="${cls(i.r1)}">${pct(i.r1)}</span>`, (i) => i.r1, 1],
+    ["3년", (i) => `<span class="${cls(i.r3)}">${pct(i.r3)}</span>`, (i) => i.r3, 1], ["주변대비", (i) => pct(i.kp), (i) => i.kp, -1],
+    ["준공", (i) => i.y ?? "–", (i) => i.y, 1], ["세대수", (i) => i.h?.toLocaleString() ?? "–", (i) => i.h, 1],
+    ["역", (i) => `${esc(i.st ?? "–")}<br>${dist(i.sd)}`, (i) => i.sd, -1], ["초등학교", (i) => dist(i.em), (i) => i.em, -1], ["학원(1km)", (i) => i.a1 ?? "–", (i) => i.a1, 1],
+    ["거래(1년)", (i) => i.n12, (i) => i.n12, 1], ["하락 방어력", (i) => i.dg ? `${i.dg} (${i.df})` : "–", (i) => i.df, 1],
+    ["'22 낙폭", (i) => i.dd != null ? `-${i.dd}%${i.de ? "*" : ""}` : "–", (i) => i.dd, -1], ["출근 접근성", (i) => i.ac ?? "–", (i) => i.ac, 1], ["출근(분) 강남/광화문/여의도", (i) => i.ct ? `${i.ct[1]}/${i.ct[0]}/${i.ct[2]}` : "–"],
   ];
   openSheet(`
     <div class="sh-head"><h2 style="flex:1">📊 단지 비교</h2>
       <button class="icon-btn" id="cmp-clear">비우기</button><button class="icon-btn" data-close>✕</button></div>
+    <div class="card"><h3>📍 위치</h3><div id="cmp-map" class="cmp-map"></div></div>
     <div class="card"><h3>평당가 추이 <span class="note">월별 중앙값 (평형 무관 비교)</span></h3>
       <div class="chart-box"><canvas id="cmp-chart"></canvas></div></div>
     <div class="card" style="overflow-x:auto"><table class="cmp-tbl">
-      <tr><th></th>${xs.map((i, k) => `<th style="color:${palette[k]}">${esc(i.n)}</th>`).join("")}</tr>
-      ${rows.map(([l, f]) => `<tr><td>${l}</td>${xs.map((i) => `<td>${f(i)}</td>`).join("")}</tr>`).join("")}
-    </table></div>
-    <div class="note">단지 상세에서 "비교에 추가"로 최대 4개까지 담을 수 있습니다.</div>`);
-  $("#cmp-clear").onclick = () => { store.set("cmp", []); renderCmpBar(); history.back(); };
+      <tr><th></th>${xs.map((i, k) => `<th style="color:${palette[k]}">${CMP_NUM[k]} ${esc(i.n)}</th>`).join("")}</tr>
+      ${rows.map(([l, f, v, dir]) => {
+        const vals = v ? xs.map(v) : [], ok = vals.filter((x) => x != null);
+        const best = ok.length >= 2 && new Set(ok).size > 1 ? (dir > 0 ? Math.max(...ok) : Math.min(...ok)) : null;
+        return `<tr><td>${l}</td>${xs.map((i, k) => `<td${best != null && vals[k] === best ? ' class="best"' : ""}>${f(i)}</td>`).join("")}</tr>`;
+      }).join("")}
+    </table><div class="note">🟩 = 그 항목에서 가장 유리한 단지 (가격 자체는 표시 안 함)</div></div>
+    <div class="note">지도에서 단지를 누르고 "📊 비교 담기"로 최대 4개까지 담을 수 있습니다.</div>`);
+  $("#cmp-clear").onclick = () => { store.set("cmp", []); renderCmpBar(); state.map && drawCmpPins(); history.back(); };
+  // 위치 미니 지도 (번호 핀 + 단지 간 거리)
+  state.cmpMap?.remove();
+  const geo = xs.map((i, k) => [i, k]).filter(([i]) => i.la);
+  if (geo.length) {
+    const mm = (state.cmpMap = L.map("cmp-map", { zoomControl: false, attributionControl: false }));
+    L.maplibreGL ? L.maplibreGL({ style: await koreanStyle(BASES.clean) }).addTo(mm)
+      : L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(mm);
+    geo.forEach(([i, k]) => L.marker([i.la, i.lo], { icon: cmpIcon(k) }).bindTooltip(esc(i.n), { direction: "top", offset: [0, -30] }).addTo(mm));
+    for (let a = 0; a < geo.length; a++) for (let b = a + 1; b < geo.length; b++) {
+      const [p, q] = [geo[a][0], geo[b][0]], km = kmTo(p, q);
+      L.polyline([[p.la, p.lo], [q.la, q.lo]], { color: "#64748b", weight: 1.5, dashArray: "4 4" }).addTo(mm)
+        .bindTooltip(km < 1 ? Math.round(km * 1000) + "m" : km.toFixed(1) + "km", { permanent: geo.length <= 3, direction: "center", className: "cmp-dist" });
+    }
+    mm.fitBounds(L.latLngBounds(geo.map(([i]) => [i.la, i.lo])).pad(0.3), { maxZoom: 15 });
+    setTimeout(() => mm.invalidateSize(), 200);
+  }
 
   const ds = await Promise.all(codes.map(getDetail));
   const months = [...new Set(ds.flatMap((d) => d.pp.map((x) => x[0])))].sort();
