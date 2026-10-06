@@ -39,20 +39,22 @@ const thisYear = new Date().getFullYear();
 // ---------- 입지점수 (각 0~100, 가중평균) ----------
 // 비중 키: a 출근 접근성 · h 단지 규모 · e 학군 · s 역세권
 // "데이터 추천형"은 백테스트(2022~26 이후 상승률과의 순위상관 크기)에 맞춘 비중: 업무지구 0.47 > 규모 0.17 ≈ 학군 > 역 0.13
+// 출근 시간에 '집→역 도보'가 이미 들어 있어 역세권과 겹침(같은 구 안 상관 0.63) → 역세권은 기본 0~10만 (이중 반영 방지)
 const PRESETS = {
-  "데이터 추천형": { a: 45, h: 20, e: 20, s: 15 },
-  "균형형": { a: 25, h: 25, e: 25, s: 25 },
-  "자녀 학군형": { a: 15, h: 15, e: 55, s: 15 },
-  "출퇴근형": { a: 45, h: 10, e: 10, s: 35 },
-  "대단지 안정형": { a: 25, h: 45, e: 15, s: 15 },
+  "데이터 추천형": { a: 55, h: 25, e: 20, s: 0 },
+  "균형형": { a: 35, h: 30, e: 30, s: 5 },
+  "자녀 학군형": { a: 25, h: 15, e: 55, s: 5 },
+  "출퇴근형": { a: 70, h: 10, e: 10, s: 10 },
+  "대단지 안정형": { a: 30, h: 50, e: 20, s: 0 },
 };
+const WEIGHTS_VER = 2;   // 프리셋 기준이 바뀌면 올림 → 예전 기본값을 쓰던 사람은 새 기본값으로
 const WKEYS = ["a", "h", "e", "s"];
 const HUB_NAMES = ["광화문", "강남", "여의도", "판교", "마곡", "성수", "가산·구로"];   // build_site.py COMMUTE_HUBS 순서
 const cwIdx = () => +($("#f-cw")?.value ?? 1);
 const ctOf = (i) => i.ct?.[cwIdx()] ?? null;   // 선택한 출근지까지 분
 const weights = () => {
   const w = store.get("weights", null);
-  return w && WKEYS.every((k) => k in w) ? w : { ...PRESETS["데이터 추천형"] };   // 예전 3요소 저장값은 새 기본값으로
+  return w && w.v === WEIGHTS_VER && WKEYS.every((k) => k in w) ? w : { ...PRESETS["데이터 추천형"], v: WEIGHTS_VER };
 };
 function scoreSize(h) {
   if (h == null) return 20;   // K-apt 미등록 = 대부분 150세대 미만 소규모 단지
@@ -232,7 +234,7 @@ function buildWeightPanel() {
     });
   };
   const apply = () => { computeScores(); sync(); renderList(); drawMarkers(); };
-  $$(".presets button").forEach((b) => b.addEventListener("click", () => { store.set("weights", { ...PRESETS[b.dataset.p] }); apply(); }));
+  $$(".presets button").forEach((b) => b.addEventListener("click", () => { store.set("weights", { ...PRESETS[b.dataset.p], v: WEIGHTS_VER }); apply(); }));
   $$(".wrow input").forEach((r) => r.addEventListener("input", () => {
     store.set("weights", { ...weights(), [r.dataset.k]: +r.value }); apply();
   }));
@@ -1068,7 +1070,9 @@ const GUIDE = [
     <div>네 가지 점수를 <b>비중</b>대로 평균합니다. 비중은 순위 탭에서 직접 바꾸거나 프리셋을 고를 수 있습니다.</div>
     <table class="kv"><tr><th>프리셋</th><th>출근</th><th>규모</th><th>학군</th><th>역</th></tr>
       ${Object.entries(PRESETS).map(([k, w]) => `<tr><td>${k === "데이터 추천형" ? "⭐ " : ""}${k}</td><td>${w.a}</td><td>${w.h}</td><td>${w.e}</td><td>${w.s}</td></tr>`).join("")}</table>
-    <div class="note">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승률과 관련이 컸던 순서(업무지구 > 규모 ≈ 학군 > 역)대로 정한 비중.
+    <div class="note">⭐ 데이터 추천형 = 2022~26 백테스트에서 이후 상승률과 관련이 컸던 순서(업무지구 > 규모 ≈ 학군)대로 정한 비중.
+      <b>역세권은 기본 0~10</b>: 출근 시간 계산에 '집→역 도보'가 이미 들어 있어 따로 더하면 역 가까운 단지가 두 번 점수를 받습니다
+      (같은 구 안에서 두 점수의 상관 0.63). 지하철 생활 편의를 더 중시하면 슬라이더로 올릴 수 있습니다.
       위치 정보가 아직 없는 단지는 점수를 보류합니다.</div>`],
   ["ac", "🏙️ 출근 시간 · 출근 접근성", `
     <div><b>출근 시간(분)</b>: 단지 → (도보 또는 버스) → 지하철역 → (노선·환승) → 업무지구 역 → 도보 5분.
@@ -1097,7 +1101,8 @@ const GUIDE = [
   ["st", "🚇 역세권", `
     <table class="kv"><tr><td>≤300m</td><td>100</td></tr><tr><td>≤500m</td><td>80</td></tr><tr><td>≤800m</td><td>60</td></tr>
       <tr><td>≤1km</td><td>45</td></tr><tr><td>≤1.5km</td><td>25</td></tr><tr><td>그 이상</td><td>10</td></tr></table>
-    <div class="note">환승 보너스: 500m 안에 노선이 하나 더 있을 때마다 +10점 (최대 100).</div>`],
+    <div class="note">환승 보너스: 500m 안에 노선이 하나 더 있을 때마다 +10점 (최대 100).
+      출근 접근성과 겹치므로 기본 프리셋에서는 비중이 0~10입니다 (출퇴근이 아닌 지하철 생활 편의용).</div>`],
   ["price", "🧹 보정 시세 · 상승률", `
     <ol>
       <li><b>정제</b>: 취소(해제)된 거래와 직거래(가족 간 저가 거래 등) 제외</li>
