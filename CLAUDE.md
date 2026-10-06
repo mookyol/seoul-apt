@@ -25,5 +25,6 @@
 ## 주의
 - 워크플로 checkout은 `ref: main` 유지 (대기 중이던 실행이 옛 데이터로 시작해 충돌난 적 있음)
 - 웹앱 수정 후 `site/sw.js`의 CACHE 버전을 올려야 사용자에게 바로 반영됨
+- 버전을 올리면 `CHANGELOG.md` 표 맨 위에 한 줄 추가 (버전 · 날짜 · 바뀐 것을 초보자도 알 수 있게 짧게)
 - 공공데이터 API 버전이 자주 바뀜: K-apt는 AptListService4 / AptBasisInfoServiceV5
 - 로컬 테스트: `python build_site.py` 후 `python -m http.server 8765 -d site`
