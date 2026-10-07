@@ -51,8 +51,10 @@
         <option value="fav">⭐ 내 관심만</option><option value="group">👥 그룹 관심만</option></select></label>
       <label>세대수 <select id="mq-hh"><option value="">전체</option><option value="300">300세대+</option>
         <option value="500">500세대+</option><option value="1000">1000세대+</option></select></label>
-      <label>84㎡ 시세 <select id="mq-price"><option value="">전체</option><option value="0-10">10억 미만</option>
-        <option value="10-15">10~15억</option><option value="15-20">15~20억</option><option value="20-30">20~30억</option><option value="30-0">30억 이상</option></select></label>
+      <div class="mq-price"><span>시세</span>
+        <select id="mq-band" aria-label="평형"><option value="84">84㎡</option><option value="59">59㎡</option></select>
+        <input id="mq-pmin" type="number" inputmode="decimal" step="0.5" min="0" placeholder="최소"> ~
+        <input id="mq-pmax" type="number" inputmode="decimal" step="0.5" min="0" placeholder="최대"> 억</div>
       <label>연식 <select id="mq-age"><option value="">전체</option><option value="new">10년 이내</option>
         <option value="mid">20년 이내</option><option value="old">30년 이상</option></select></label>
       <label>용적률 <select id="mq-far"><option value="">전체</option><option value="-200">200% 이하 (재건축 여력 큼)</option>

@@ -387,3 +387,8 @@ details.card summary { cursor: pointer; font-weight: 700; }
 .bchip button { border: 0; background: none; color: #047857; cursor: pointer; padding: 0 4px; }
 .map-bchip { position: absolute; left: 10px; bottom: 54px; z-index: 500; }
 body.has-cmp .map-bchip { bottom: 116px; }
+/* 지도 필터: 평형 + 금액대 */
+.mq-price { display: flex; align-items: center; gap: 4px; font-size: 13px; flex-wrap: wrap; }
+.mq-price span { margin-right: auto; }
+.mq-price select { padding: 4px 2px; }
+.mq-price input { width: 58px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 14px; text-align: right; }
