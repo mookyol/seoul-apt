@@ -1727,19 +1727,19 @@ async function renderCompare() {
   btn.onclick = async () => {
     if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; return; }
     alert(ios
-      ? "아이폰 설치 방법
+      ? `아이폰 설치 방법
 
 1. 사파리 아래쪽 [공유] 버튼(□↑)을 누르세요
 2. 목록에서 [홈 화면에 추가]를 누르세요
 3. 오른쪽 위 [추가]를 누르면 홈 화면에 앱 아이콘이 생깁니다
 
-※ 카카오톡 안에서 열었다면 먼저 오른쪽 아래 ⋯ → [Safari로 열기]"
-      : "안드로이드 설치 방법
+※ 카카오톡 안에서 열었다면 먼저 오른쪽 아래 ⋯ → [Safari로 열기]`
+      : `안드로이드 설치 방법
 
 1. 크롬 오른쪽 위 ⋮ 메뉴를 누르세요
 2. [홈 화면에 추가] 또는 [앱 설치]를 누르세요
 
-※ 카카오톡 안에서 열었다면 먼저 오른쪽 위 ⋮ → [다른 브라우저로 열기]");
+※ 카카오톡 안에서 열었다면 먼저 오른쪽 위 ⋮ → [다른 브라우저로 열기]`);
   };
 })();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

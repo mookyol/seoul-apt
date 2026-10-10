@@ -48,6 +48,8 @@ jobs:
         run: python build_site.py
 
       - uses: actions/configure-pages@v5
+      - name: 웹앱 코드 문법 검사 (오류가 있으면 배포 중단 — 깨진 화면이 올라가지 않게)
+        run: for f in site/*.js; do node --check "$f" || exit 1; done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
