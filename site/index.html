@@ -57,6 +57,9 @@
         <input id="mq-pmax" type="number" inputmode="decimal" step="0.5" min="0" placeholder="최대"> 억</div>
       <label>연식 <select id="mq-age"><option value="">전체</option><option value="new">10년 이내</option>
         <option value="mid">20년 이내</option><option value="old">30년 이상</option></select></label>
+      <div class="mq-price"><span>매매 거래</span>
+        <select id="mq-yr" aria-label="연도"><option value="">연도 선택</option><option value="2026">2026년</option><option value="2025">2025년</option><option value="2024">2024년</option><option value="2023">2023년 (하락기)</option><option value="2022">2022년 (하락기)</option><option value="2021">2021년</option><option value="2020">2020년</option><option value="2019">2019년</option><option value="2018">2018년</option><option value="2017">2017년</option><option value="2016">2016년</option></select>
+        <select id="mq-yn" aria-label="건수"><option value="1">1건+</option><option value="3">3건+</option><option value="5">5건+</option><option value="10">10건+</option><option value="20">20건+</option></select></div>
       <label>용적률 <select id="mq-far"><option value="">전체</option><option value="-200">200% 이하 (재건축 여력 큼)</option>
         <option value="-250">250% 이하</option><option value="250">250% 초과</option></select></label>
       <label>성격 <select id="mq-ty"><option value="">전체</option><option value="전천후형">⭐ 전천후형</option><option value="방어형">🛡️ 방어형</option>
@@ -167,6 +170,8 @@
         <option value="">전체</option><option value="전천후형">⭐ 전천후형</option><option value="방어형">🛡️ 방어형</option>
         <option value="탄력형">🚀 탄력형</option><option value="평균형">⚖️ 평균형</option><option value="약세형">⚠️ 약세형</option>
       </select></label>
+      <label>매매 거래 <select id="f-yr"><option value="">연도 전체</option><option value="2026">2026년</option><option value="2025">2025년</option><option value="2024">2024년</option><option value="2023">2023년 (하락기)</option><option value="2022">2022년 (하락기)</option><option value="2021">2021년</option><option value="2020">2020년</option><option value="2019">2019년</option><option value="2018">2018년</option><option value="2017">2017년</option><option value="2016">2016년</option></select>
+        <select id="f-yn"><option value="1">1건+</option><option value="3">3건+</option><option value="5">5건+</option><option value="10">10건+</option><option value="20">20건+</option></select></label>
       <label>하락 방어력 <select id="f-dg">
         <option value="">전체</option><option value="A">A등급만</option><option value="AB">B등급 이상</option>
       </select></label>

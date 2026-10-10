@@ -392,3 +392,16 @@ body.has-cmp .map-bchip { bottom: 116px; }
 .mq-price span { margin-right: auto; }
 .mq-price select { padding: 4px 2px; }
 .mq-price input { width: 58px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 14px; text-align: right; }
+
+/* 연도별 매매 · 내 위치 */
+.ys-tbl { width: 100%; font-size: 13px; border-collapse: collapse; }
+.ys-tbl th, .ys-tbl td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.ys-tbl th:first-child, .ys-tbl td:first-child { text-align: left; }
+.ys-tbl tr[data-y] { cursor: pointer; }
+.ys-tbl tr.down-yr { background: rgba(37, 99, 235, .08); }
+.ys-tbl small { color: #2563eb; font-size: 10px; }
+.tr-ctl { display: flex; gap: 6px; margin-bottom: 8px; }
+.tr-ctl select { flex: 1; padding: 6px; }
+.locate-btn { width: 34px; height: 34px; border-radius: 6px; border: 2px solid rgba(0,0,0,.2); background: #fff; font-size: 16px; cursor: pointer; }
+.locate-btn.busy { animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .4; } }

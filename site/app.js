@@ -194,7 +194,7 @@ async function init() {
   $("#m-price").classList.toggle("off", !priceOn());
   $("#m-color").hidden = $("#m-label").hidden = !priceOn();
   // 지도 빠른 필터 (선택은 이 기기에 기억)
-  const MQ = ["mq-view", "mq-hh", "mq-band", "mq-pmin", "mq-pmax", "mq-age", "mq-far", "mq-ty", "mq-dg", "mq-recent", "mq-small", "m-favpin"];
+  const MQ = ["mq-view", "mq-hh", "mq-band", "mq-pmin", "mq-pmax", "mq-yr", "mq-yn", "mq-age", "mq-far", "mq-ty", "mq-dg", "mq-recent", "mq-small", "m-favpin"];
   const mqSave = () => store.set("mq", Object.fromEntries(MQ.map((id) => [id, $("#" + id).type === "checkbox" ? $("#" + id).checked : $("#" + id).value])));
   for (const [id, v] of Object.entries(store.get("mq", {}))) if ($("#" + id)) $("#" + id)[typeof v === "boolean" ? "checked" : "value"] = v;
   MQ.forEach((id) => $("#" + id).addEventListener("change", () => { mqSave(); quickCount(); drawMarkers(); }));
@@ -202,7 +202,7 @@ async function init() {
   const placePanel = (p) => { const c = $("#tab-map .map-ctl"); p.style.top = c.offsetTop + c.offsetHeight + 6 + "px"; };
   $("#m-qbtn").addEventListener("click", () => { placePanel($("#mq-panel")); $("#mq-panel").hidden = !$("#mq-panel").hidden; $("#m-panel").hidden = true; });
   $("#mq-reset").addEventListener("click", () => {
-    MQ.filter((id) => id !== "m-favpin" && id !== "mq-band").forEach((id) => ($("#" + id).type === "checkbox" ? ($("#" + id).checked = false) : ($("#" + id).value = "")));
+    MQ.filter((id) => !["m-favpin", "mq-band", "mq-yn"].includes(id)).forEach((id) => ($("#" + id).type === "checkbox" ? ($("#" + id).checked = false) : ($("#" + id).value = "")));
     mqSave(); quickCount(); drawMarkers();
   });
   // 패널 닫기: ✕ / 적용하고 닫기 / 지도 빈 곳 누르기 / Esc
@@ -256,7 +256,7 @@ if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
 }
 
 function saveFilters() {
-  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg", "#f-cw", "#f-cm", "#f-ty"];
+  const ids = ["#f-gu", "#f-sort", "#f-budget", "#f-hh", "#f-sd", "#f-es", "#f-age", "#f-n", "#f-dg", "#f-cw", "#f-cm", "#f-ty", "#f-yr", "#f-yn"];
   store.set("filters", Object.fromEntries(ids.map((id) => [id, $(id).value])));
 }
 
@@ -331,6 +331,25 @@ async function setBase(kind) {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' });
   state.base.addTo(state.map);
 }
+// 📍 내 위치 (GPS) — 위치 정보는 지도에 점을 찍는 데만 쓰고 어디에도 보내지 않음
+function locateMe() {
+  if (!navigator.geolocation) return alert("이 브라우저는 위치 찾기를 지원하지 않습니다");
+  const btn = $(".locate-btn");
+  btn?.classList.add("busy");
+  navigator.geolocation.getCurrentPosition((pos) => {
+    btn?.classList.remove("busy");
+    const { latitude: la, longitude: lo, accuracy } = pos.coords;
+    state.meLayer ??= L.layerGroup().addTo(state.map);
+    state.meLayer.clearLayers();
+    L.circle([la, lo], { radius: Math.min(accuracy, 500), color: "#2563eb", weight: 1, fillOpacity: 0.08, interactive: false }).addTo(state.meLayer);
+    L.circleMarker([la, lo], { radius: 8, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).bindTooltip("내 위치").addTo(state.meLayer);
+    state.map.setView([la, lo], Math.max(state.map.getZoom(), 15));
+  }, (err) => {
+    btn?.classList.remove("busy");
+    alert(err.code === 1 ? "위치 권한이 꺼져 있어요. 휴대폰 설정 → 브라우저(또는 앱) → 위치 허용을 켜 주세요."
+      : "위치를 찾지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+}
 function initMap() {
   state.map = L.map("map", { preferCanvas: true, zoomControl: false, maxZoom: 18 }).setView([37.5565, 126.99], 11);
   for (const [name, z] of [["guPane", 350], ["linePane", 360], ["stationPane", 420], ["labelPane", 430]]) {
@@ -339,6 +358,14 @@ function initMap() {
   state.map.getPane("labelPane").style.pointerEvents = "none";
   setBase(store.get("mbase", "clean"));
   L.control.zoom({ position: "topright" }).addTo(state.map);
+  const Locate = L.Control.extend({ onAdd() {
+    const b = L.DomUtil.create("button", "locate-btn");
+    b.title = "내 위치"; b.setAttribute("aria-label", "내 위치로 이동"); b.textContent = "📍";
+    L.DomEvent.disableClickPropagation(b);
+    b.onclick = locateMe;
+    return b;
+  } });
+  new Locate({ position: "topright" }).addTo(state.map);
   state.layer = L.layerGroup().addTo(state.map);
   drawMarkers();
   loadOverlays();
@@ -417,11 +444,14 @@ async function drawBounds() {
 const SMALL_HH = 100, SMALL_N5 = 30;
 const isSmall = (i) => i.h != null ? i.h < SMALL_HH : (i.n5 ?? 0) < SMALL_N5;
 const qf = (id) => $("#" + id)?.value ?? "";
+// 그 해 매매 거래가 n건 이상인가 (ny = 연도별 건수, meta.nyFrom 연도부터)
+const yearOk = (i, yr, n) => !yr || ((i.ny?.[yr - (state.meta.nyFrom || 2016)] ?? 0) >= (n || 1));
 function mapQuick(i) {
   const hh = +qf("mq-hh"), age = qf("mq-age"), view = qf("mq-view");
   if (!$("#mq-small")?.checked && isSmall(i) && !isFav(i.c)) return false;
   if ($("#mq-recent")?.checked && !(i.n12 > 0)) return false;
   if (!inBudget(i)) return false;
+  if (!yearOk(i, +qf("mq-yr"), +qf("mq-yn"))) return false;
   if (hh && !((i.h ?? 0) >= hh)) return false;
   const pmin = +qf("mq-pmin"), pmax = +qf("mq-pmax");
   if (pmin || pmax) { const v = i["p" + (qf("mq-band") || "84")]; if (v == null || (pmin && v < pmin * 10000) || (pmax && v > pmax * 10000)) return false; }
@@ -438,7 +468,7 @@ function mapQuick(i) {
   return true;
 }
 function quickCount() {
-  const n = ["mq-hh", "mq-age", "mq-view", "mq-far", "mq-ty", "mq-dg"].filter((id) => qf(id)).length + (qf("mq-pmin") || qf("mq-pmax") ? 1 : 0) + (budgetOn() ? 1 : 0) + ($("#mq-recent")?.checked ? 1 : 0) + ($("#mq-small")?.checked ? 1 : 0);
+  const n = ["mq-hh", "mq-age", "mq-view", "mq-far", "mq-ty", "mq-dg", "mq-yr"].filter((id) => qf(id)).length + (qf("mq-pmin") || qf("mq-pmax") ? 1 : 0) + (budgetOn() ? 1 : 0) + ($("#mq-recent")?.checked ? 1 : 0) + ($("#mq-small")?.checked ? 1 : 0);
   if ($("#m-qbtn")) $("#m-qbtn").textContent = n ? `🔎 필터 ${n}` : "🔎 필터";
 }
 const mapItems = () => ($("#m-filter")?.checked ? filtered() : state.items).filter((i) => i.la && mapQuick(i));
@@ -801,6 +831,7 @@ function filtered(ignoreGu = false) {
     (!n || i.n12 >= n) &&
     (!dg || (i.dg && dg.includes(i.dg))) &&
     (!ty || i.ty === ty) &&
+    yearOk(i, +$("#f-yr").value, +$("#f-yn").value) &&
     (!cm || (ctOf(i) != null && ctOf(i) <= cm)) &&
     (!stq || (i.la && (i._std = Math.round(kmTo(stq, i) * 1000)) <= state.stRadius)) &&
     (words.length || $("#f-small")?.checked || !isSmall(i)));
@@ -1101,7 +1132,12 @@ async function renderDetail(code) {
         `<tr><td>학원가 <span class="note">30%</span></td><td>1km 안 ${i.a1 ?? "–"}개 · 500m 안 ${i.a5 ?? "–"}개</td>
           <td>${i.a1 != null ? "상위 " + (100 - p.학원) + "%" : "–"}</td><td>${p.학원 ?? "–"}점</td></tr>`; })()}</table>
       <div class="note">초품아 = 초등학교 300m 이내. 거리는 직선거리. 학교별 학업성취도는 2017년 이후 비공개라 학원가 밀도를 학군 대리지표로 사용합니다.</div>`}</div>
-    <div class="card"><h3>최근 거래</h3><table id="trades"><tr><td>불러오는 중…</td></tr></table></div>
+    <div class="card"><h3>📅 연도별 매매 <span class="note">행을 누르면 그 해 거래 목록</span></h3>
+      <div style="overflow-x:auto"><table class="ys-tbl" id="ys"><tr><td>불러오는 중…</td></tr></table></div></div>
+    <div class="card"><h3 id="trades-h">최근 거래</h3>
+      <div class="tr-ctl"><select id="tr-year"><option value="">최근 30건</option></select>
+        <select id="tr-band"><option value="">전체 평형</option><option value="59">59㎡대</option><option value="84">84㎡대</option><option value="big">100㎡ 이상</option></select></div>
+      <table id="trades"><tr><td>불러오는 중…</td></tr></table></div>
     <div class="card" id="remarks"></div>
     <div class="card"><h3>📝 내 메모 <span class="note">나만 보임</span></h3>
       <textarea id="memo" placeholder="임장 메모, 장단점, 호가 등">${esc(memo(code))}</textarea>
@@ -1123,8 +1159,26 @@ async function renderDetail(code) {
 
   const d = await getDetail(code);
   drawReport(i, d);
-  $("#trades").innerHTML = "<tr><th>계약일</th><th>전용</th><th>층</th><th>거래가</th></tr>" +
-    d.trades.map(([dt, a, f, p]) => `<tr><td>${dt}</td><td>${a}㎡</td><td>${f}</td><td>${won(p)}</td></tr>`).join("");
+  // 연도별 요약 (2022·2023 = 하락기 표시)
+  const DOWN = { 2022: "📉 하락 시작", 2023: "📉 하락기" };
+  $("#ys").innerHTML = "<tr><th>연도</th><th>거래</th><th>84㎡ 중앙</th><th>최저~최고</th><th>평당</th></tr>" +
+    (d.ys || []).map(([y, n, m84, lo, hi, pp]) => `<tr data-y="${y}" class="${DOWN[y] ? "down-yr" : ""}">
+      <td><b>${y}</b>${DOWN[y] ? `<br><small>${DOWN[y]}</small>` : ""}</td><td>${n}건</td><td>${m84 ? shortWon(m84) : "–"}</td>
+      <td>${shortWon(lo)}~${shortWon(hi)}</td><td>${shortWon(pp)}</td></tr>`).join("");
+  $("#tr-year").innerHTML = `<option value="">최근 30건</option>` + (d.ys || []).map(([y, n]) => `<option value="${y}">${y}년 (${n}건)${DOWN[y] ? " " + DOWN[y] : ""}</option>`).join("");
+  const bandOf = (a) => a < 66 ? "59" : a < 100 ? "84" : "big";
+  const drawTrades = () => {
+    const y = $("#tr-year").value, b = $("#tr-band").value;
+    let xs = d.trades.filter(([dt, a]) => (!y || dt.startsWith(y)) && (!b || bandOf(a) === b));
+    if (!y) xs = xs.slice(0, 30);
+    $("#trades-h").textContent = y ? `${y}년 거래 (${xs.length}건)` : "최근 거래";
+    $("#trades").innerHTML = "<tr><th>계약일</th><th>전용</th><th>층</th><th>거래가</th></tr>" +
+      (xs.map(([dt, a, f, p]) => `<tr><td>${dt}</td><td>${a}㎡</td><td>${f}</td><td>${won(p)}</td></tr>`).join("") ||
+       `<tr><td colspan="4" class="note">해당 거래 없음</td></tr>`);
+  };
+  $("#tr-year").onchange = $("#tr-band").onchange = drawTrades;
+  $$("#ys tr[data-y]").forEach((tr) => (tr.onclick = () => { $("#tr-year").value = tr.dataset.y; drawTrades(); $("#trades-h").scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  drawTrades();
   $("#near").innerHTML = d.near?.length ? "<tr><th>단지</th><th>거리</th><th>평당가</th><th>3년</th><th>전세가율</th></tr>" +
     d.near.map((o) => `<tr data-c="${o.c}"><td class="nm">${esc(o.n)}</td><td>${o.km}km</td><td>${won(o.p)}</td>
       <td class="${cls(o.r3)}">${pct(o.r3)}</td><td>${o.jr != null ? o.jr + "%" : "–"}</td></tr>`).join("")

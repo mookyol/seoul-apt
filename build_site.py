@@ -167,6 +167,16 @@ def merge_groups(info, n_trades):
     return alias
 
 
+YEAR0 = 2016          # 실거래 수집 시작 연도
+
+
+def by_year(ts):
+    out = defaultdict(list)
+    for t in ts:
+        out[int(t["date"][:4])].append(t)
+    return out
+
+
 def load_trades():
     out = []
     for path in sorted((ROOT / "data" / "trades").glob("*.csv")):
@@ -352,6 +362,8 @@ def main():
             "h": int(num("세대수")) if num("세대수") else (int(num("대장세대수")) if num("대장세대수") else None),
             "hsrc": "kapt" if num("세대수") else ("대장" if num("대장세대수") else None),
             "mg": len(members.get(code, [])) or None,                       # 합쳐진 지번 단지 수
+            "ny": (lambda c: [c.get(y, 0) for y in range(YEAR0, last.year + 1)])(
+                  {y: len(v) for y, v in by_year(ts).items()}) if ts else None,   # 연도별 매매 건수 (YEAR0부터)
             "b": ci.get("건설사") or None,
             "st": ci.get("최근접역") or None, "sd": int(num("역거리m")) if num("역거리m") is not None else None,
             "sl": int(num("역세권노선수") or 0),
@@ -401,7 +413,11 @@ def main():
             "pp": [[mo, round(math.exp(statistics.median(v)))] for mo, v in sorted(pp.items())],  # 월별 평당가 (평형 고정, 단지 비교·리포트용)
             "vol": sorted(vol.items()),                        # 월별 거래량
             "trades": [[t["date"], round(t["area"], 1), t["floor"], t["price"]]
-                       for t in sorted(ts, key=lambda t: t["date"], reverse=True)[:30]],
+                       for t in sorted(ts, key=lambda t: t["date"], reverse=True)],   # 전체 매매 (연도별 보기용)
+            # 연도별 요약: [연도, 거래 수, 84㎡ 중앙값, 최저, 최고, 평당가 중앙값]
+            "ys": [[y, len(v), median([t["price"] for t in v if t["band"] == "84"]), min(t["price"] for t in v),
+                    max(t["price"] for t in v), median([t["ppp"] for t in v])]
+                   for y, v in sorted(by_year(ts).items(), reverse=True)],
         }
 
     # 합친 단지의 세대수 = 서로 다른 K-apt 단지 세대수의 합 (같은 K-apt를 두 번 세지 않음)
@@ -456,7 +472,7 @@ def main():
         (OUT / "c" / f"{code}.json").write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")),
                                                 encoding="utf-8")
 
-    meta = {"alias": alias, "updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
+    meta = {"nyFrom": YEAR0, "alias": alias, "updated": date.today().isoformat(), "dataFrom": min(t["date"] for t in trades),
             "dataTo": last.isoformat(), "count": len(summary), "hasRent": bool(jeonse)}
     for key, name in (("fair", "fair_value_meta.json"), ("backtest", "backtest.json")):   # 점수 성적표용
         p = ROOT / "data" / "model" / name
