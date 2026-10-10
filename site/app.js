@@ -1714,5 +1714,33 @@ async function renderCompare() {
   });
 }
 
+// 📲 앱 설치 버튼 — 안드로이드(크롬·삼성인터넷)는 바로 설치 창, 아이폰(사파리)은 "홈 화면에 추가" 안내
+(() => {
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const btn = document.getElementById("install-btn");
+  if (standalone || !btn) return;                       // 이미 앱으로 실행 중이면 숨김
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  let deferred = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; btn.hidden = false; });
+  window.addEventListener("appinstalled", () => (btn.hidden = true));
+  if (ios || /android/i.test(navigator.userAgent)) btn.hidden = false;
+  btn.onclick = async () => {
+    if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; return; }
+    alert(ios
+      ? "아이폰 설치 방법
+
+1. 사파리 아래쪽 [공유] 버튼(□↑)을 누르세요
+2. 목록에서 [홈 화면에 추가]를 누르세요
+3. 오른쪽 위 [추가]를 누르면 홈 화면에 앱 아이콘이 생깁니다
+
+※ 카카오톡 안에서 열었다면 먼저 오른쪽 아래 ⋯ → [Safari로 열기]"
+      : "안드로이드 설치 방법
+
+1. 크롬 오른쪽 위 ⋮ 메뉴를 누르세요
+2. [홈 화면에 추가] 또는 [앱 설치]를 누르세요
+
+※ 카카오톡 안에서 열었다면 먼저 오른쪽 위 ⋮ → [다른 브라우저로 열기]");
+  };
+})();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 init().catch((e) => { document.body.insertAdjacentHTML("beforeend", `<div class="empty">데이터를 불러오지 못했습니다: ${esc(e.message)}</div>`); });
