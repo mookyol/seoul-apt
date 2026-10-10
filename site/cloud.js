@@ -152,6 +152,54 @@ const cloud = {
       this.sb.from("memos").upsert({ complex_code: code, body, updated_at: new Date().toISOString() }), 800);
   },
 
+  // ---- 📸 임장 기록 (사진은 비공개 저장소 'visits', 1시간짜리 임시 주소로만 열람) ----
+  async visits(code) {
+    const { data, error } = await this.sb.from("visits")
+      .select("id, complex_code, user_id, visited_at, rating, checks, memo, photos, shared, members(nickname)")
+      .eq("complex_code", code).order("visited_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async visitCounts() {      // 단지별 임장 횟수 (지도 📷 표시용)
+    const { data } = await this.sb.from("visits").select("complex_code");
+    const out = {};
+    for (const r of data || []) out[r.complex_code] = (out[r.complex_code] || 0) + 1;
+    return out;
+  },
+  async photoUrls(paths, thumb = true) {
+    if (!paths.length) return {};
+    const ps = paths.map((p) => (thumb ? p.replace(/\.jpg$/, "_t.jpg") : p));
+    const { data, error } = await this.sb.storage.from("visits").createSignedUrls(ps, 3600);
+    if (error) throw error;
+    return Object.fromEntries(paths.map((p, k) => [p, data[k]?.signedUrl]));
+  },
+  async uploadPhoto(full, small) {
+    const name = `${this.user.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const st = this.sb.storage.from("visits");
+    const a = await st.upload(name + ".jpg", full, { contentType: "image/jpeg", upsert: false });
+    if (a.error) throw a.error;
+    const b = await st.upload(name + "_t.jpg", small, { contentType: "image/jpeg", upsert: false });
+    if (b.error) throw b.error;
+    return name + ".jpg";
+  },
+  async removePhotos(paths) {
+    if (!paths.length) return;
+    await this.sb.storage.from("visits").remove(paths.flatMap((p) => [p, p.replace(/\.jpg$/, "_t.jpg")]));
+  },
+  async saveVisit(v) {
+    const { error } = await this.sb.from("visits").insert(v);
+    if (error) throw error;
+  },
+  async deleteVisit(v) {
+    const { error } = await this.sb.from("visits").delete().eq("id", v.id);
+    if (error) throw error;
+    await this.removePhotos(v.photos || []).catch(() => {});
+  },
+  async storageUsage() {
+    const { data } = await this.sb.rpc("visits_storage_usage");
+    return data;
+  },
+
   // ---- 리마크 ----
   async loadCounts() {
     const { data } = await this.sb.from("remarks").select("complex_code, kind");

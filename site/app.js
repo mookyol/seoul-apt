@@ -365,6 +365,14 @@ function initMap() {
     return b;
   } });
   new Locate({ position: "topright" }).addTo(state.map);
+  const VisitBtn = L.Control.extend({ onAdd() {     // 📸 임장 시작 (내 위치로 근처 단지 자동 선택)
+    const b = L.DomUtil.create("button", "locate-btn visit-btn");
+    b.title = "임장 시작"; b.setAttribute("aria-label", "임장 기록 시작"); b.textContent = "📸";
+    L.DomEvent.disableClickPropagation(b);
+    b.onclick = () => openVisitMode();
+    return b;
+  } });
+  new VisitBtn({ position: "topright" }).addTo(state.map);
   state.layer = L.layerGroup().addTo(state.map);
   drawMarkers();
   loadOverlays();
@@ -1116,6 +1124,7 @@ async function renderAdmin() {
         `<button class="chip" data-no="${m.user_id}">내보내기</button>`)).join("")}</ul></div>
       ${no.length ? `<div class="card"><h3>🚫 거절·내보냄 (${no.length})</h3><ul class="adm-list">${no.map((m) => row(m, (m) =>
         `<button class="chip" data-ok="${m.user_id}">승인</button>`)).join("")}</ul></div>` : ""}
+      <div class="card" id="adm-store"><h3>📸 사진 저장 공간</h3><div class="note">확인 중…</div></div>
       <div class="note" style="padding:0 16px 16px">관리자는 카카오 계정 기준이라 어느 기기에서 로그인해도 관리자예요. 예비 관리자를 한 명 지정해 두면 내 계정에 문제가 생겨도 복구할 수 있어요.</div>`;
     const act = (sel, fn, ask) => $$(`#adm [${sel}]`).forEach((b) => (b.onclick = async () => {
       const m = ms.find((x) => x.user_id === b.getAttribute(sel));
@@ -1124,12 +1133,222 @@ async function renderAdmin() {
       try { await fn(m.user_id); } catch (e) { alert(e.message); }
       draw();
     }));
+    cloud.storageUsage().then((bytes) => {
+      if (bytes == null) return ($("#adm-store .note").textContent = "임장 기록 SQL(visits.sql) 실행 후 표시돼요");
+      const LIMIT = 1024 ** 3, pct = Math.round(bytes / LIMIT * 100);
+      $("#adm-store").innerHTML = `<h3>📸 사진 저장 공간 <span class="note">${(bytes / 1024 ** 2).toFixed(0)}MB / 1GB (${pct}%)</span></h3>
+        <div class="bar-bg"><i style="width:${Math.min(pct, 100)}%;background:${pct > 85 ? "#f04452" : "var(--brand)"}"></i></div>
+        <div class="note">무료 저장 공간 기준 · 사진 약 ${Math.max(0, Math.round((LIMIT - bytes) / 330e3)).toLocaleString()}장 더 올릴 수 있어요${pct > 85 ? " · 곧 가득 차요 — 저장소 이전을 요청하세요" : ""}</div>`;
+    }).catch(() => {});
     act("data-ok", (u) => cloud.decide(u, true));
     act("data-no", (u) => cloud.decide(u, false), (m) => `${m.nickname}님을 ${m.status === "pending" ? "거절" : "내보내기"}할까요?`);
     act("data-admin", (u) => cloud.setAdmin(u, true), (m) => `${m.nickname}님을 관리자로 지정할까요? (다른 사람을 승인·내보내기 할 수 있게 됩니다)`);
     act("data-unadmin", (u) => cloud.setAdmin(u, false));
   };
   draw();
+}
+
+// ---------- 📸 임장 기록 ----------
+// 사진은 폰에서 줄여서(긴 변 1600px · 약 300KB, 미리보기 360px) 비공개 저장소에 올림. 줄이면서 촬영 위치 등 EXIF 정보는 사라짐
+const CHECKS = [["향", "동·향"], ["소음", "소음"], ["도보", "역까지 도보"], ["경사", "경사"], ["주차", "주차"], ["관리", "관리 상태"]];
+const CK_LABEL = { 1: "◎", 2: "○", 3: "△" };
+const CK_TEXT = { 1: "좋음", 2: "보통", 3: "별로" };
+const avatarColor = (s) => ["#3182f6", "#ff8a3d", "#20c997", "#a65eea", "#f04452", "#4e5968"][[...(s || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 6];
+const fmtDay = (t) => { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
+
+function shrinkImage(file, max, quality) {
+  return new Promise((ok, no) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);   // 브라우저가 사진 방향(세로·가로)을 맞춰서 그려 줌
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => (b ? ok(b) : no(new Error("사진 변환 실패"))), "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); no(new Error("사진을 읽지 못했어요")); };
+    img.src = url;
+  });
+}
+
+// ── 임장 모드 (현장용 전체 화면) ──
+const vm = { on: false };
+async function openVisitMode(code) {
+  if (!cloud.ready) return alert("로그인 후 사용할 수 있어요");
+  Object.assign(vm, { on: true, code: code || null, near: null, photos: [], checks: {}, rating: 0, memo: "", shared: true, saving: false });
+  $("#visit-mode").hidden = false;
+  document.body.classList.add("vm-open");
+  renderVisitMode();
+  if (!code) findNearComplex();
+}
+function findNearComplex() {
+  if (!navigator.geolocation) return;
+  vm.locating = true; renderVisitMode();
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const me = { la: pos.coords.latitude, lo: pos.coords.longitude };
+    const near = state.items.filter((i) => i.la).map((i) => [kmTo(me, i), i]).sort((a, b) => a[0] - b[0]).slice(0, 8);
+    vm.locating = false; vm.me = me; vm.nearList = near;
+    if (!vm.code && near[0] && near[0][0] <= 0.4) { vm.code = near[0][1].c; vm.near = Math.round(near[0][0] * 1000); }
+    renderVisitMode();
+  }, () => { vm.locating = false; renderVisitMode(); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+}
+function renderVisitMode() {
+  const i = vm.code ? state.byCode[vm.code] : null;
+  const up = vm.photos.filter((p) => p.status === "up").length, fail = vm.photos.filter((p) => p.status === "fail").length;
+  $("#visit-mode").innerHTML = `
+    <div class="vm-head"><b>📸 임장 중</b><button class="link-btn" id="vm-exit">✕ 나가기</button></div>
+    <div class="vm-body">
+      ${i ? `<div class="vm-loc">${vm.near != null ? `📍 지금 계신 곳 근처 (${vm.near}m)` : "📍 임장 단지"}<b>${esc(i.n)}</b>${esc(i.g)} ${esc(i.d)}${i.h ? ` · ${i.h.toLocaleString()}세대` : ""}
+          <button class="vm-change" id="vm-change">다른 단지 ›</button></div>`
+        : `<div class="vm-loc">${vm.locating ? "📍 내 위치로 근처 단지 찾는 중…" : "📍 어느 단지인지 골라 주세요"}</div>`}
+      <div class="card vm-pick" id="vm-pick" ${i ? "hidden" : ""}>
+        <input id="vm-q" placeholder="단지 이름으로 찾기" autocomplete="off">
+        <div id="vm-res">${(vm.nearList || []).map(([d, x]) => `<button data-c="${x.c}">${esc(x.n)} <small>${d < 1 ? Math.round(d * 1000) + "m" : d.toFixed(1) + "km"}</small></button>`).join("")}</div>
+      </div>
+      <div class="card"><div class="vm-h">사진 <span class="note">${vm.photos.length}장 · 자동으로 줄여서 올려요</span></div>
+        <div class="vm-shot">
+          <label class="vm-cam">📷<input type="file" accept="image/*" capture="environment" id="vm-cam" hidden></label>
+          <label class="vm-cam alt">🖼️<input type="file" accept="image/*" multiple id="vm-gal" hidden></label>
+          <div class="vm-strip">${vm.photos.map((p, k) => `<div class="vm-ph ${p.status}" style="background-image:url('${p.url}')">
+            <button data-rm="${k}" aria-label="빼기">✕</button>${p.status === "up" ? "<i>⏳</i>" : p.status === "fail" ? "<i>⚠️</i>" : ""}</div>`).join("")}</div></div></div>
+      <div class="card"><div class="vm-h">체크리스트 <span class="note">탭 한 번</span></div>
+        <div class="vm-ck">${CHECKS.map(([k, l]) => `<span>${l}</span><div>${[1, 2, 3].map((v) =>
+          `<button data-ck="${k}" data-v="${v}" class="${vm.checks[k] === v ? "on" + v : ""}">${CK_LABEL[v]} ${CK_TEXT[v]}</button>`).join("")}</div>`).join("")}</div></div>
+      <div class="card"><div class="vm-h">총평 <span class="vm-stars">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}">${n <= vm.rating ? "★" : "☆"}</button>`).join("")}</span></div>
+        <textarea id="vm-memo" maxlength="1000" placeholder="좋았던 점, 아쉬운 점, 동·호수, 중개사 말 등">${esc(vm.memo)}</textarea>
+        <div class="seg vm-seg"><button data-sh="1" class="${vm.shared ? "on" : ""}">👥 그룹 공유</button><button data-sh="0" class="${vm.shared ? "" : "on"}">🔒 나만 보기</button></div></div>
+    </div>
+    <div class="vm-foot"><div class="note">${up ? `☁️ ${up}장 올리는 중…` : fail ? `⚠️ ${fail}장 대기 — 신호가 잡히면 자동으로 다시 올려요` : vm.photos.length ? `☁️ ${vm.photos.length}장 업로드 완료` : "사진 없이도 저장할 수 있어요"}</div>
+      <button class="btn" id="vm-save" ${vm.saving ? "disabled" : ""}>${vm.saving ? "저장 중…" : "완료"}</button></div>`;
+  const add = async (files) => {
+    for (const f of files) {
+      const p = { url: URL.createObjectURL(f), status: "up", file: f };
+      vm.photos.push(p);
+      uploadVisitPhoto(p);
+    }
+    renderVisitMode();
+  };
+  $("#vm-cam").onchange = (e) => add([...e.target.files]);
+  $("#vm-gal").onchange = (e) => add([...e.target.files]);
+  $("#vm-exit").onclick = exitVisitMode;
+  $("#vm-change") && ($("#vm-change").onclick = () => { $("#vm-pick").hidden = false; if (!vm.nearList) findNearComplex(); $("#vm-q").focus(); });
+  $("#vm-q").oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase().replace(/\s+/g, "");
+    const xs = q ? state.items.filter((x) => (x.n + (x.al || "")).toLowerCase().replace(/\s+/g, "").includes(q)).sort((a, b) => (b.h ?? 0) - (a.h ?? 0)).slice(0, 8)
+      .map((x) => [vm.me ? kmTo(vm.me, x) : null, x]) : vm.nearList || [];
+    $("#vm-res").innerHTML = xs.map(([d, x]) => `<button data-c="${x.c}">${esc(x.n)} <small>${d == null ? esc(x.g + " " + x.d) : d < 1 ? Math.round(d * 1000) + "m" : d.toFixed(1) + "km"}</small></button>`).join("");
+    bindPick();
+  };
+  const bindPick = () => $$("#vm-res [data-c]").forEach((b) => (b.onclick = () => { vm.code = b.dataset.c; vm.near = vm.me ? Math.round(kmTo(vm.me, state.byCode[vm.code]) * 1000) : null; renderVisitMode(); }));
+  bindPick();
+  $$("#visit-mode [data-rm]").forEach((b) => (b.onclick = () => {
+    const [p] = vm.photos.splice(+b.dataset.rm, 1);
+    if (p.path) cloud.removePhotos([p.path]).catch(() => {});
+    renderVisitMode();
+  }));
+  $$("#visit-mode [data-ck]").forEach((b) => (b.onclick = () => {
+    const k = b.dataset.ck, v = +b.dataset.v;
+    vm.checks[k] = vm.checks[k] === v ? undefined : v; renderVisitMode();
+  }));
+  $$("#visit-mode [data-star]").forEach((b) => (b.onclick = () => { vm.rating = +b.dataset.star; renderVisitMode(); }));
+  $$("#visit-mode [data-sh]").forEach((b) => (b.onclick = () => { vm.shared = b.dataset.sh === "1"; renderVisitMode(); }));
+  $("#vm-memo").oninput = (e) => (vm.memo = e.target.value);
+  $("#vm-save").onclick = saveVisitMode;
+}
+async function uploadVisitPhoto(p) {
+  p.status = "up";
+  try {
+    p.full ??= await shrinkImage(p.file, 1600, 0.8);
+    p.small ??= await shrinkImage(p.file, 360, 0.7);
+    p.path = await cloud.uploadPhoto(p.full, p.small);
+    p.status = "ok";
+  } catch (e) {
+    console.warn("사진 업로드 실패", e);
+    p.status = "fail";
+    setTimeout(() => vm.on && vm.photos.includes(p) && p.status === "fail" && uploadVisitPhoto(p), 15000);   // 신호 잡히면 다시
+  }
+  if (vm.on) renderVisitMode();
+}
+async function saveVisitMode() {
+  if (!vm.code) return alert("어느 단지인지 먼저 골라 주세요");
+  if (vm.photos.some((p) => p.status === "up")) return alert("사진을 올리는 중이에요. 잠시 후 다시 눌러 주세요");
+  if (vm.photos.some((p) => p.status === "fail") && !confirm("아직 못 올린 사진이 있어요. 그 사진은 빼고 저장할까요?")) return;
+  vm.saving = true; renderVisitMode();
+  try {
+    const checks = Object.fromEntries(Object.entries(vm.checks).filter(([, v]) => v));
+    await cloud.saveVisit({ complex_code: vm.code, rating: vm.rating || null, checks, memo: vm.memo.trim(), shared: vm.shared,
+      photos: vm.photos.filter((p) => p.status === "ok").map((p) => p.path) });
+    const code = vm.code;
+    closeVisitMode();
+    state.visitCounts && (state.visitCounts[code] = (state.visitCounts[code] || 0) + 1);
+    openDetail(code);
+    setTimeout(() => $("#visits-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 600);
+  } catch (e) {
+    vm.saving = false; renderVisitMode();
+    alert("저장하지 못했어요: " + e.message);
+  }
+}
+function exitVisitMode() {
+  const dirty = vm.photos.length || vm.memo.trim() || vm.rating || Object.values(vm.checks).some(Boolean);
+  if (dirty && !confirm("저장하지 않고 나갈까요? 올린 사진도 지워져요")) return;
+  cloud.removePhotos(vm.photos.filter((p) => p.path).map((p) => p.path)).catch(() => {});
+  closeVisitMode();
+}
+function closeVisitMode() {
+  vm.photos.forEach((p) => URL.revokeObjectURL(p.url));
+  vm.on = false;
+  $("#visit-mode").hidden = true;
+  document.body.classList.remove("vm-open");
+}
+window.addEventListener("beforeunload", (e) => { if (vm.on && vm.photos.length) { e.preventDefault(); e.returnValue = ""; } });
+
+// ── 단지 상세: 📸 임장 기록 카드 ──
+async function renderVisitsCard(code) {
+  const box = $("#visits-card");
+  if (!box) return;
+  let vs;
+  try { vs = await cloud.visits(code); } catch (e) {
+    const notReady = /visits|relation|schema cache/i.test(e.message || "");
+    box.innerHTML = `<h3>📸 임장 기록</h3><div class="note">${notReady ? "관리자가 서버 설정(visits.sql)을 마치면 사용할 수 있어요" : "임장 기록을 불러오지 못했어요 (" + esc(e.message) + ")"}</div>`;
+    return;
+  }
+  const all = vs.flatMap((v) => (v.photos || []).map((p) => [p, v]));
+  const urls = await cloud.photoUrls(all.map(([p]) => p)).catch(() => ({}));
+  const me = cloud.user?.id;
+  box.innerHTML = `<h3>📸 임장 기록 <span class="note">${vs.length ? `${vs.length}번 다녀옴 · 사진 ${all.length}장` : "아직 기록이 없어요"}</span>
+      <button class="vc-add" id="vc-add">+ 기록</button></h3>
+    ${all.length ? `<div class="vc-gal">${all.slice(0, 5).map(([p, v]) => `<button class="vc-ph" data-full="${esc(p)}" style="background-image:url('${urls[p] || ""}')">
+      <span>${fmtDay(v.visited_at)} ${esc(v.members?.nickname || "")}</span></button>`).join("")}${all.length > 5 ? `<button class="vc-ph more" data-all="1">+${all.length - 5}장</button>` : ""}</div>` : ""}
+    ${vs.map((v) => `<div class="vc-rec"><div class="vc-who"><span class="av" style="background:${avatarColor(v.members?.nickname)}">${esc((v.members?.nickname || "?").slice(0, 1))}</span>
+        <div><b>${esc(v.members?.nickname || "?")}</b> <span class="note">· ${fmtDay(v.visited_at)}${v.shared ? "" : " · 🔒 나만 보기"}</span>
+          ${v.rating ? `<div class="vc-stars">${"★".repeat(v.rating)}${"☆".repeat(5 - v.rating)}</div>` : ""}</div>
+        ${v.user_id === me || cloud.isAdmin ? `<button class="link-btn vc-del" data-del="${v.id}">삭제</button>` : ""}</div>
+      ${Object.keys(v.checks || {}).length ? `<div class="vc-chips">${CHECKS.filter(([k]) => v.checks[k]).map(([k, l]) =>
+        `<span class="g${v.checks[k]}">${CK_LABEL[v.checks[k]]} ${l}</span>`).join("")}</div>` : ""}
+      ${v.memo ? `<div class="vc-memo">${esc(v.memo)}</div>` : ""}
+      ${(v.photos || []).length ? `<div class="vc-thumbs">${v.photos.map((p) => `<button class="vc-ph sm" data-full="${esc(p)}" style="background-image:url('${urls[p] || ""}')"></button>`).join("")}</div>` : ""}
+    </div>`).join("")}`;
+  $("#vc-add").onclick = () => openVisitMode(code);
+  $$("#visits-card [data-full]").forEach((b) => (b.onclick = () => showPhoto(b.dataset.full)));
+  $$("#visits-card [data-all]").forEach((b) => (b.onclick = () => $$("#visits-card .vc-thumbs")[0]?.scrollIntoView({ behavior: "smooth" })));
+  $$("#visits-card [data-del]").forEach((b) => (b.onclick = async () => {
+    const v = vs.find((x) => String(x.id) === b.dataset.del);
+    if (!confirm("이 임장 기록과 사진을 지울까요?")) return;
+    try { await cloud.deleteVisit(v); } catch (e) { return alert(e.message); }
+    renderVisitsCard(code);
+  }));
+}
+async function showPhoto(path) {
+  const box = document.createElement("div");
+  box.className = "lightbox";
+  box.innerHTML = `<div class="note" style="color:#fff">불러오는 중…</div>`;
+  box.onclick = () => box.remove();
+  document.body.appendChild(box);
+  try {
+    const u = (await cloud.photoUrls([path], false))[path];
+    box.innerHTML = `<img src="${u}" alt="임장 사진"><button aria-label="닫기">✕</button>`;
+  } catch (e) { box.innerHTML = `<div class="note" style="color:#fff">사진을 열지 못했어요</div>`; }
 }
 
 // ---------- 라우팅 (#c=단지코드 / #s=청약공고 / #cmp / #join) ----------
@@ -1186,6 +1405,7 @@ async function renderDetail(code) {
       <a href="${kakaoUrl}" target="_blank" rel="noopener">🗺️ 카카오맵</a>
     </div>
     ${reportHTML(i)}
+    <div class="card" id="visits-card"><h3>📸 임장 기록</h3><div class="note">불러오는 중…</div></div>
     <div class="card lscard"><h3>📍 입지점수 <b class="lsc">${i.ls ?? "–"}</b><small>점</small>${guideLink("ls")}</h3>${i.la ? scoreBars(i)
       : `<div class="note">이 단지의 위치·세대수·학군 정보를 수집 중입니다. 매일 새벽 자동 수집으로 곧 채워집니다.</div>`}</div>
     <div class="stats">
@@ -1261,6 +1481,7 @@ async function renderDetail(code) {
 
   const d = await getDetail(code);
   drawReport(i, d);
+  renderVisitsCard(code);
   // 연도별 요약 (2022·2023 = 하락기 표시)
   const DOWN = { 2022: "📉 하락 시작", 2023: "📉 하락기" };
   $("#ys").innerHTML = "<tr><th>연도</th><th>거래</th><th>84㎡ 중앙</th><th>최저~최고</th><th>평당</th></tr>" +
