@@ -1,4 +1,4 @@
-// 서울 아파트 입지 — 웹앱
+// 콩지의 부동산 — 웹앱
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 const state = { items: [], byCode: {}, meta: {}, map: null, layer: null, supLayer: null, supply: null, chart: null, cmpChart: null };
@@ -1047,7 +1047,7 @@ function gateHTML(kind) {
     rejected: `<p>가입이 승인되지 않았어요.<br>관리자에게 문의한 뒤 다시 요청할 수 있어요.</p>
       <button class="btn" id="g-again">다시 요청</button>`,
   }[kind];
-  return `<div class="gate-box"><img src="icon-192.png" alt="" class="gate-logo"><h1>서울 아파트 입지</h1>${body}
+  return `<div class="gate-box"><img src="icon-192.png" alt="" class="gate-logo"><h1>콩지의 부동산</h1>${body}
     ${cloud.user && kind !== "checking" ? `<button class="link-btn" id="g-out">다른 계정으로 로그인</button>` : ""}</div>`;
 }
 function showGate(kind) {
@@ -1514,7 +1514,7 @@ function reportHTML(i) {
       ${ct.map(([h, m]) => `<div class="rhub"><span>${h}</span><div><i style="width:${m / cmax * 100}%" class="${m <= 30 ? "g" : m <= 45 ? "y" : "r"}"></i></div><b>${m}분</b></div>`).join("")}</div>` : ""}
     ${future ? `<div class="rcard"><h4>🔮 앞으로 볼 것</h4><div class="rchips">${future}</div></div>` : ""}
     ${old ? `<div class="note rnote">⚠️ 준공 30년 이상 — 재건축 기대가 가격에 반영돼 적정가 모델(건물 기준)이 잘 맞지 않을 수 있습니다.</div>` : ""}
-    <div class="note rnote">데이터로 설명되는 가격 대비 위치입니다. 조망·향·소음·내부 상태는 반영되지 않습니다. · 서울 아파트 입지</div>
+    <div class="note rnote">데이터로 설명되는 가격 대비 위치입니다. 조망·향·소음·내부 상태는 반영되지 않습니다. · 콩지의 부동산</div>
   </div>
   <button class="btn sub rsave" id="rep-save" data-html2canvas-ignore>🖼️ 리포트 이미지로 저장 · 공유</button>`;
 }

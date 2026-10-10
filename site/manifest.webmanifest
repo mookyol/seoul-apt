@@ -1,6 +1,6 @@
 {
-  "name": "서울 아파트 입지",
-  "short_name": "서울입지",
+  "name": "콩지의 부동산",
+  "short_name": "콩지의 부동산",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
