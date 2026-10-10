@@ -3,25 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#ffffff">
 <title>내 예산 계산기 · 콩지의 부동산</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-48.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="app.css">
 <style>
   body.budget-page { overflow-y: auto; height: auto; min-height: 100%; background: var(--bg); }
   .budget-page .top { position: sticky; top: 0; z-index: 10; }
   .budget-page main { display: block; position: static; height: auto; overflow: visible; max-width: 640px; margin: 0 auto; padding: 12px 0 24px; }
   .budget-page .card { margin: 0 12px 12px; }
-  .budget-page .back { color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; }
+  .budget-page .back { color: var(--brand); text-decoration: none; font-weight: 700; font-size: 15px; }
   .budget-page .kv td:first-child { white-space: nowrap; }
   .budget-page .lead { margin: 4px 16px 12px; font-size: 13px; color: var(--sub); line-height: 1.5; }
 </style>
 </head>
 <body class="budget-page">
 <header class="top">
-  <div class="brand-row"><a class="back" href="./">← 지도로</a><b style="color:#fff">💸 내 예산 계산기</b><span></span></div>
+  <div class="brand-row"><a class="back" href="./">← 지도로</a><b>💸 내 예산 계산기</b><span></span></div>
 </header>
 <main>
   <div class="lead">현금·소득을 넣으면 대출 규제(LTV · 주담대 한도 · DSR)와 취득세·중개비까지 반영해 <b>살 수 있는 최대 집값</b>을 계산하고,

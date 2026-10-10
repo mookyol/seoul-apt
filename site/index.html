@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="콩지의 부동산">
 <title>콩지의 부동산</title>
@@ -13,14 +13,15 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <div id="gate" class="gate"></div>
 <header class="top">
-  <div class="brand-row"><div class="brand">콩지의 부동산</div>
-    <div><button id="admin-btn" class="auth-btn" hidden></button> <button id="install-btn" class="auth-btn" hidden>📲 앱 설치</button> <a href="#guide" class="auth-btn" style="text-decoration:none">📖 가이드</a> <button id="auth-btn" class="auth-btn">로그인</button></div></div>
-  <input id="q" type="search" placeholder="단지명 · 동 · 지번 · '강남역'처럼 역 이름으로 주변 검색" autocomplete="off">
+  <div class="brand-row"><div class="brand"><img src="icon-192.png" alt="">콩지의 부동산</div>
+    <div><button id="admin-btn" class="auth-btn" hidden></button> <button id="install-btn" class="auth-btn" hidden>📲 설치</button> <a href="#guide" class="auth-btn" style="text-decoration:none" aria-label="가이드">📖</a> <button id="auth-btn" class="auth-btn">로그인</button></div></div>
+  <input id="q" type="search" placeholder="단지 · 동 · 역 이름으로 검색" autocomplete="off">
 </header>
 
 <main>
@@ -229,11 +230,11 @@
 <div class="cmp-bar" id="cmp-bar" hidden></div>
 
 <nav class="tabs">
-  <button data-tab="map" class="active"><span>🗺️</span>지도</button>
-  <button data-tab="list"><span>📋</span>순위</button>
-  <button data-tab="supply"><span>🏠</span>청약</button>
-  <button data-tab="news"><span>📰</span>이슈</button>
-  <button data-tab="fav"><span>⭐</span>관심</button>
+  <button data-tab="map" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>지도</button>
+  <button data-tab="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>순위</button>
+  <button data-tab="supply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>청약</button>
+  <button data-tab="news"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>이슈</button>
+  <button data-tab="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>관심</button>
 </nav>
 
 <div class="sheet-bg" id="sheet-bg" hidden></div>

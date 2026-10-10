@@ -18,7 +18,7 @@ const toggleFav = (c) => {
 const memo = (c) => store.get("memo:" + c, "");
 const cmps = () => store.get("cmp", []);
 const inCmp = (c) => cmps().includes(c);
-const CMP_COLORS = ["#0f766e", "#f59e0b", "#6366f1", "#e11d48"];
+const CMP_COLORS = ["#3182f6", "#f59e0b", "#6366f1", "#e11d48"];
 const CMP_NUM = ["①", "②", "③", "④"];
 function toggleCmp(code) {
   let xs = cmps();
@@ -435,7 +435,7 @@ async function drawBounds() {
     const i = state.byCode[c];
     if (!i || !shown.has(i.c) || !b.contains(ring[0])) continue;
     const mine = isFav(i.c) || inCmp(i.c);
-    L.polygon(ring, { color: mine ? "#f59e0b" : "#0f766e", weight: mine ? 2.5 : 1.5, opacity: 0.8, fillColor: mine ? "#f59e0b" : "#14b8a6", fillOpacity: 0.07 })
+    L.polygon(ring, { color: mine ? "#f59e0b" : "#3182f6", weight: mine ? 2.5 : 1.5, opacity: 0.8, fillColor: mine ? "#f59e0b" : "#3182f6", fillOpacity: 0.07 })
       .on("click", () => showPeek(i)).addTo(state.boundLayer);
   }
 }
@@ -957,7 +957,7 @@ function showStationOnMap(stq) {
   state.map.invalidateSize();   // 폰 키보드가 열리고 닫히며 지도 크기가 바뀐 경우 대비
   state.map.setView([stq.la, stq.lo], state.stRadius > 1000 ? 14 : 15);
   state.stCircle?.remove(); state.stPin?.remove();
-  state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#0f766e", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
+  state.stCircle = L.circle([stq.la, stq.lo], { radius: state.stRadius, color: "#3182f6", weight: 2, fillOpacity: 0.05, interactive: false }).addTo(state.map);
   state.stPin = L.marker([stq.la, stq.lo], { icon: L.divIcon({ className: "pin-wrap", html: `<div class="st-pin">🚇 ${esc(stq.name)}역</div>`, iconSize: null, iconAnchor: [0, 0] }), zIndexOffset: 6000, interactive: false }).addTo(state.map);
 }
 function renderList() {
@@ -1087,7 +1087,8 @@ function renderAdminBtn() {
   if (!b) return;
   const claim = cloud.ready && !cloud.adminExists;
   b.hidden = !(cloud.isAdmin || claim);
-  b.innerHTML = claim ? "👑 관리자 등록" : `👑 관리${cloud.pending ? ` <span class="badge-n">${cloud.pending}</span>` : ""}`;
+  b.innerHTML = claim ? "👑 관리자 등록" : `👑${cloud.pending ? ` <span class="badge-n">${cloud.pending}</span>` : ""}`;
+  b.setAttribute("aria-label", "멤버 관리");
   b.onclick = async () => {
     if (claim) {
       if (!confirm("이 카카오 계정을 관리자로 등록할까요?\n(관리자가 아직 없을 때 한 번만 가능)")) return;
@@ -1297,8 +1298,8 @@ async function renderDetail(code) {
     const tc = chartColors();
     state.chart = new Chart($("#chart"), {
       data: { labels: months, datasets: [
-        { type: "line", label: "매매", data: months.map((m) => sale[m] ? sale[m][1] / 10000 : null), borderColor: "#0f766e",
-          backgroundColor: "#0f766e", spanGaps: true, tension: 0.25, pointRadius: months.length > 24 ? 0 : 3, yAxisID: "y" },
+        { type: "line", label: "매매", data: months.map((m) => sale[m] ? sale[m][1] / 10000 : null), borderColor: "#3182f6",
+          backgroundColor: "#3182f6", spanGaps: true, tension: 0.25, pointRadius: months.length > 24 ? 0 : 3, yAxisID: "y" },
         { type: "line", label: "전세", data: months.map((m) => jeon[m] ? jeon[m][1] / 10000 : null), borderColor: "#f59e0b",
           backgroundColor: "#f59e0b", spanGaps: true, tension: 0.25, pointRadius: months.length > 24 ? 0 : 3, yAxisID: "y" },
         { type: "bar", label: "거래량(전체)", data: months.map((m) => vol[m] || 0), backgroundColor: "#94a3b855", yAxisID: "v" },
@@ -1528,7 +1529,7 @@ async function drawReport(i, d) {
     const axes = RADAR_AXES.map(([l, k, low]) => [l, seoulPct(k, i[k], low)]);
     state.repCharts.push(new Chart($("#rep-radar"), { type: "radar",
       data: { labels: axes.map(([l, p]) => p == null ? l + " ?" : l), datasets: [
-        { label: i.n, data: axes.map(([, p]) => p ?? null), spanGaps: true, borderColor: "#0f766e", backgroundColor: "rgba(15,118,110,.22)", pointBackgroundColor: "#0f766e" },
+        { label: i.n, data: axes.map(([, p]) => p ?? null), spanGaps: true, borderColor: "#3182f6", backgroundColor: "rgba(49,130,246,.18)", pointBackgroundColor: "#3182f6" },
         { label: "서울 중간", data: axes.map(() => 50), borderColor: "#94a3b8", borderDash: [4, 4], backgroundColor: "transparent", pointRadius: 0 }] },
       options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.datasetIndex ? "서울 중간" : `서울 상위 ${Math.max(1, 100 - c.raw)}%` } } },
         scales: { r: { min: 0, max: 100, ticks: { display: false, stepSize: 25 }, grid: { color: "rgba(148,163,184,.3)" }, angleLines: { color: "rgba(148,163,184,.3)" },
@@ -1541,7 +1542,7 @@ async function drawReport(i, d) {
     if (!pp.length) { $("#rep-trend").closest(".rcard").hidden = true; return; }
     state.repCharts.push(new Chart($("#rep-trend"), { type: "line",
       data: { labels, datasets: [
-        { label: i.n, data: pp.map(([, v]) => v), borderColor: "#0f766e", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+        { label: i.n, data: pp.map(([, v]) => v), borderColor: "#3182f6", borderWidth: 2, pointRadius: 0, tension: 0.3 },
         { label: `${i.g} 중앙값`, data: labels.map((m) => gu[m] ?? null), borderColor: "#cbd5e1", borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true }] },
       options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label} 평당 ${won(c.raw)}` } } },
