@@ -50,6 +50,11 @@ jobs:
       - uses: actions/configure-pages@v5
       - name: 웹앱 코드 문법 검사 (오류가 있으면 배포 중단 — 깨진 화면이 올라가지 않게)
         run: for f in site/*.js; do node --check "$f" || exit 1; done
+      - name: 파일 주소에 버전 붙이기 (배포 즉시 새 파일을 받도록 — 브라우저 캐시 무시)
+        run: |
+          v=${GITHUB_SHA::7}
+          sed -i -E "s/(src|href)=\"(app|cloud|budget|config)\.(js|css)\"/\1=\"\2.\3?v=$v\"/g" site/index.html site/budget.html
+          grep -oE '(app|cloud|budget|config)\.(js|css)\?v=[a-f0-9]+' site/index.html site/budget.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
