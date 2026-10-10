@@ -405,3 +405,24 @@ body.has-cmp .map-bchip { bottom: 116px; }
 .locate-btn { width: 34px; height: 34px; border-radius: 6px; border: 2px solid rgba(0,0,0,.2); background: #fff; font-size: 16px; cursor: pointer; }
 .locate-btn.busy { animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .4; } }
+
+/* 🔒 입장 관문 · 👑 멤버 관리 */
+.gate { position: fixed; inset: 0; z-index: 3000; background: linear-gradient(160deg, #0f766e, #134e4a); display: grid; place-items: center; padding: 20px; }
+.gate[hidden] { display: none !important; }
+.gate-box { background: var(--card); color: var(--text); border-radius: 20px; padding: 28px 22px; width: min(360px, 100%); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.gate-logo { width: 84px; height: 84px; border-radius: 22px; }
+.gate-box h1 { font-size: 20px; margin: 10px 0 6px; }
+.gate-box p { font-size: 14px; color: var(--sub); line-height: 1.6; margin: 8px 0 16px; }
+.gate-box input { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; margin-bottom: 10px; background: var(--bg); color: var(--text); }
+.gate-box .btn { width: 100%; }
+.btn.kakao { background: #fee500; color: #191919; }
+.link-btn { border: 0; background: none; color: var(--sub); font-size: 12px; margin-top: 12px; text-decoration: underline; cursor: pointer; }
+.badge-n { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #ef4444; color: #fff; font-size: 11px; font-weight: 800; }
+.adm-list { list-style: none; margin: 0; padding: 0; }
+.adm-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.adm-row:last-child { border-bottom: 0; }
+.adm-btns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 420px) {
+  .brand-row .auth-btn { padding: 4px 8px; font-size: 12px; }
+  .brand-row h1, .brand-row .brand { font-size: 17px; white-space: nowrap; }
+}

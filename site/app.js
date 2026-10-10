@@ -239,10 +239,9 @@ async function init() {
       if (s) renderRemarks("청약-" + s.no);
     }
     if ($("#tab-supply").classList.contains("active")) renderSupply();
-    if (location.hash === "#join" && cloud.ready) history.back();
+    renderAdminBtn();
   });
   renderAuth();
-  cloud.init().catch((e) => console.warn("로그인 서버 연결 실패", e));
   // 가이드 버튼 — 화면 파일(index.html)이 캐시된 옛 버전이어도 항상 보이도록 코드에서 보장
   if (!document.querySelector('a[href="#guide"]')) {
     $("#auth-btn").insertAdjacentHTML("beforebegin", `<a href="#guide" class="auth-btn" style="text-decoration:none;margin-right:4px">📖 가이드</a>`);
@@ -1031,6 +1030,107 @@ function renderBudgetChip() {
   $$(".budget-chip").forEach((el) => (el.innerHTML = html));
   $$("[data-bclear]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); setBudgetFilter(null); }));
 }
+// ---------- 🔒 입장 관문: 관리자가 승인한 사람만 앱 사용 ----------
+let appStarted = false;
+function gateHTML(kind) {
+  const nick = cloud.member?.nickname ? esc(cloud.member.nickname) : "";
+  const body = {
+    checking: `<p>확인 중…</p>`,
+    offline: `<p>로그인 서버에 연결하지 못했어요.</p><button class="btn" onclick="location.reload()">다시 시도</button>`,
+    login: `<p>승인된 지인만 볼 수 있는 앱이에요.<br>카카오로 로그인한 뒤 가입을 요청해 주세요.</p>
+      <button class="btn kakao" id="g-login">카카오로 로그인</button>`,
+    request: `<p>처음 오셨네요! 닉네임을 정하고 가입을 요청하면<br><b>관리자가 승인</b>한 뒤 사용할 수 있어요.</p>
+      <input id="g-nick" maxlength="20" placeholder="닉네임 (지인들이 알아볼 이름)">
+      <button class="btn" id="g-req">가입 요청</button><div class="note" id="g-msg"></div>`,
+    pending: `<p><b>${nick}</b>님, 가입 요청을 보냈어요.<br>관리자가 승인하면 바로 열려요 ⏳</p>
+      <button class="btn" onclick="location.reload()">승인됐는지 다시 확인</button>`,
+    rejected: `<p>가입이 승인되지 않았어요.<br>관리자에게 문의한 뒤 다시 요청할 수 있어요.</p>
+      <button class="btn" id="g-again">다시 요청</button>`,
+  }[kind];
+  return `<div class="gate-box"><img src="icon-192.png" alt="" class="gate-logo"><h1>서울 아파트 입지</h1>${body}
+    ${cloud.user && kind !== "checking" ? `<button class="link-btn" id="g-out">다른 계정으로 로그인</button>` : ""}</div>`;
+}
+function showGate(kind) {
+  const g = $("#gate");
+  g.hidden = false;
+  g.innerHTML = gateHTML(kind);
+  $("#g-login") && ($("#g-login").onclick = () => cloud.login());
+  $("#g-out") && ($("#g-out").onclick = () => cloud.logout());
+  $("#g-again") && ($("#g-again").onclick = () => cloud.request(cloud.member.nickname).catch((e) => alert(e.message)));
+  $("#g-req") && ($("#g-req").onclick = async () => {
+    const nick = $("#g-nick").value.trim();
+    if (!nick) return ($("#g-msg").textContent = "닉네임을 입력해 주세요");
+    $("#g-req").disabled = true;
+    try { await cloud.request(nick); } catch (e) { $("#g-msg").textContent = e.message; $("#g-req").disabled = false; }
+  });
+}
+function updateGate() {
+  if (cloud.ready) {
+    $("#gate").hidden = true;
+    if (!appStarted) { appStarted = true; init().catch((e) => document.body.insertAdjacentHTML("beforeend", `<div class="empty">데이터를 불러오지 못했습니다: ${esc(e.message)}</div>`)); }
+    renderAdminBtn();
+    return;
+  }
+  showGate(!cloud.checked ? "checking" : !cloud.user ? "login" : !cloud.member ? "request" : cloud.member.status);
+}
+async function boot() {
+  showGate("checking");
+  cloud.onChange(updateGate);
+  try { await cloud.init(); } catch (e) { console.warn(e); return showGate("offline"); }
+  if (!window.supabase || !cloud.sb) return showGate("offline");
+  updateGate();
+}
+
+// ---------- 👑 관리자: 가입 승인 · 관리자 지정 ----------
+function renderAdminBtn() {
+  const b = $("#admin-btn");
+  if (!b) return;
+  const claim = cloud.ready && !cloud.adminExists;
+  b.hidden = !(cloud.isAdmin || claim);
+  b.innerHTML = claim ? "👑 관리자 등록" : `👑 관리${cloud.pending ? ` <span class="badge-n">${cloud.pending}</span>` : ""}`;
+  b.onclick = async () => {
+    if (claim) {
+      if (!confirm("이 카카오 계정을 관리자로 등록할까요?\n(관리자가 아직 없을 때 한 번만 가능)")) return;
+      try { (await cloud.claimAdmin()) ? alert("관리자로 등록됐어요 👑") : alert("이미 다른 관리자가 있어요"); } catch (e) { alert(e.message); }
+      return renderAdminBtn();
+    }
+    location.hash = "admin";
+  };
+}
+async function renderAdmin() {
+  if (!cloud.isAdmin) return closeSheet();
+  openSheet(`<div class="sh-head"><h2 style="flex:1">👑 멤버 관리</h2><button class="icon-btn" data-close>✕</button></div><div id="adm">불러오는 중…</div>`);
+  const draw = async () => {
+    let ms;
+    try { ms = await cloud.members(); } catch (e) { return ($("#adm").textContent = e.message); }
+    const me = cloud.user.id, day = (t) => t ? t.slice(0, 10) : "";
+    const row = (m, btns) => `<li class="adm-row"><div><b>${esc(m.nickname)}</b>${m.role === "admin" ? ' <span class="tag">👑 관리자</span>' : ""}${m.user_id === me ? ' <span class="tag">나</span>' : ""}
+      <div class="note">요청 ${day(m.joined_at)}${m.decided_at ? ` · 처리 ${day(m.decided_at)}` : ""}</div></div><div class="adm-btns">${m.user_id === me ? "" : btns(m)}</div></li>`;
+    const pend = ms.filter((m) => m.status === "pending"), ok = ms.filter((m) => m.status === "approved"), no = ms.filter((m) => m.status === "rejected");
+    $("#adm").innerHTML = `
+      <div class="card"><h3>🔔 승인 대기 (${pend.length})</h3><ul class="adm-list">${pend.map((m) => row(m, (m) =>
+        `<button class="chip on" data-ok="${m.user_id}">승인</button><button class="chip" data-no="${m.user_id}">거절</button>`)).join("") || '<div class="note">대기 중인 요청이 없어요</div>'}</ul></div>
+      <div class="card"><h3>✅ 멤버 (${ok.length})</h3><ul class="adm-list">${ok.map((m) => row(m, (m) =>
+        (m.role === "admin" ? `<button class="chip" data-unadmin="${m.user_id}">관리자 해제</button>` : `<button class="chip" data-admin="${m.user_id}">관리자 지정</button>`) +
+        `<button class="chip" data-no="${m.user_id}">내보내기</button>`)).join("")}</ul></div>
+      ${no.length ? `<div class="card"><h3>🚫 거절·내보냄 (${no.length})</h3><ul class="adm-list">${no.map((m) => row(m, (m) =>
+        `<button class="chip" data-ok="${m.user_id}">승인</button>`)).join("")}</ul></div>` : ""}
+      <div class="note" style="padding:0 16px 16px">관리자는 카카오 계정 기준이라 어느 기기에서 로그인해도 관리자예요. 예비 관리자를 한 명 지정해 두면 내 계정에 문제가 생겨도 복구할 수 있어요.</div>`;
+    const act = (sel, fn, ask) => $$(`#adm [${sel}]`).forEach((b) => (b.onclick = async () => {
+      const m = ms.find((x) => x.user_id === b.getAttribute(sel));
+      if (ask && !confirm(ask(m))) return;
+      b.disabled = true;
+      try { await fn(m.user_id); } catch (e) { alert(e.message); }
+      draw();
+    }));
+    act("data-ok", (u) => cloud.decide(u, true));
+    act("data-no", (u) => cloud.decide(u, false), (m) => `${m.nickname}님을 ${m.status === "pending" ? "거절" : "내보내기"}할까요?`);
+    act("data-admin", (u) => cloud.setAdmin(u, true), (m) => `${m.nickname}님을 관리자로 지정할까요? (다른 사람을 승인·내보내기 할 수 있게 됩니다)`);
+    act("data-unadmin", (u) => cloud.setAdmin(u, false));
+  };
+  draw();
+}
+
 // ---------- 라우팅 (#c=단지코드 / #s=청약공고 / #cmp / #join) ----------
 function openDetail(code) { location.hash = "c=" + encodeURIComponent(code); }
 function route() {
@@ -1039,6 +1139,7 @@ function route() {
   else if (location.hash.startsWith("#s=")) renderSub(decodeURIComponent(location.hash.slice(3)));
   else if (location.hash === "#cmp" && cmps().length) renderCompare();
   else if (location.hash === "#join") renderJoin();
+  else if (location.hash === "#admin") renderAdmin();
   else if (location.hash === "#score") renderScorecard();
   else if (location.hash.startsWith("#guide")) renderGuide(location.hash.split("-")[1]);
   else if (location.hash === "#budget") location.href = "budget.html";
@@ -1288,33 +1389,16 @@ async function renderFeed() {
 // ---------- 로그인 · 그룹 가입 ----------
 function renderAuth() {
   const b = $("#auth-btn");
-  b.textContent = cloud.ready ? `👤 ${cloud.member.nickname}` : cloud.user ? "그룹 가입" : "로그인";
+  b.textContent = cloud.ready ? `👤 ${cloud.member.nickname}` : "로그인";
   b.onclick = () => {
     if (cloud.ready) { if (confirm(`${cloud.member.nickname}님, 로그아웃할까요?`)) cloud.logout(); }
-    else if (cloud.user) openJoin();
     else cloud.login();
   };
 }
 function openJoin() {
   if (location.hash === "#join") renderJoin(); else location.hash = "join";
 }
-function renderJoin() {
-  if (!cloud.user) return history.back();
-  openSheet(`
-    <div class="sh-head"><h2 style="flex:1">👥 그룹 가입</h2><button class="icon-btn" data-close>✕</button></div>
-    <div class="card">
-      <label class="field">초대코드<input id="j-code" autocomplete="off" placeholder="그룹 관리자에게 받은 코드"></label>
-      <label class="field">닉네임<input id="j-nick" maxlength="20" placeholder="리마크에 표시될 이름"></label>
-      <button class="btn" id="j-go">가입하기</button>
-      <div class="note" id="j-msg">닉네임은 리마크에 표시됩니다. 지인들이 알아볼 수 있는 이름으로 정해주세요.</div>
-    </div>`);
-  $("#j-go").onclick = async () => {
-    const code = $("#j-code").value, nick = $("#j-nick").value;
-    if (!code.trim() || !nick.trim()) return ($("#j-msg").textContent = "초대코드와 닉네임을 모두 입력해주세요");
-    try { await cloud.join(code, nick); history.back(); }
-    catch (e) { $("#j-msg").textContent = "❌ " + e.message; }
-  };
-}
+function renderJoin() { closeSheet(); }   // 초대코드 가입은 종료 — 가입 요청은 첫 화면(🔒)에서
 
 // ---------- 📋 종합 리포트 (설계서: 종합 요약 · 관점별 점수 · 미래 가치 · 리스크) ----------
 const VERDICT_NOTE = {
@@ -1743,4 +1827,4 @@ async function renderCompare() {
   };
 })();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-init().catch((e) => { document.body.insertAdjacentHTML("beforeend", `<div class="empty">데이터를 불러오지 못했습니다: ${esc(e.message)}</div>`); });
+boot();   // 🔒 승인 확인 → 승인된 멤버만 데이터 불러오기(init)

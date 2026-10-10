@@ -9,7 +9,9 @@ const cloud = {
   listeners: [],
   onChange(fn) { this.listeners.push(fn); },
   emit() { this.listeners.forEach((fn) => fn()); },
-  get ready() { return !!(this.user && this.member); },
+  get ready() { return !!(this.user && this.member?.status === "approved"); },   // 관리자가 승인한 멤버만
+  get isAdmin() { return this.ready && this.member.role === "admin"; },
+  checked: false, pending: 0, adminExists: true,
 
   async init() {
     const cfg = window.APP_CONFIG;
@@ -30,10 +32,15 @@ const cloud = {
     this.member = null;
     this.counts = {};
     if (this.user) {
-      const { data } = await this.sb.from("members").select("nickname").eq("user_id", this.user.id).maybeSingle();
+      let { data, error } = await this.sb.from("members").select("nickname, status, role").eq("user_id", this.user.id).maybeSingle();
+      if (error) {   // 승인제 SQL(approval.sql) 적용 전: 예전 방식 그대로 (기존 멤버 = 승인)
+        ({ data } = await this.sb.from("members").select("nickname").eq("user_id", this.user.id).maybeSingle());
+        if (data) Object.assign(data, { status: "approved", role: "member" });
+      }
       this.member = data;
-      if (this.member) await Promise.all([this.pullPrivate(), this.loadCounts(), this.loadGroupFavs()]);
+      if (this.ready) await Promise.all([this.pullPrivate(), this.loadCounts(), this.loadGroupFavs(), this.loadAdminState()]);
     }
+    this.checked = true;
     this.emit();
   },
 
@@ -45,10 +52,41 @@ const cloud = {
   },
   async logout() { await this.sb.auth.signOut(); this.user = null; await this.afterAuth(); },
 
-  async join(code, nick) {
-    const { error } = await this.sb.rpc("join_group", { code: code.trim(), nick: nick.trim() });
+  // ---- 가입 요청 · 승인 (관리자) ----
+  async request(nick) {
+    const { error } = await this.sb.rpc("request_join", { nick: nick.trim() });
     if (error) throw new Error(error.message.includes("duplicate") ? "이미 쓰는 닉네임입니다" : error.message);
     await this.afterAuth();
+  },
+  async loadAdminState() {
+    const { data: ex } = await this.sb.rpc("admin_exists");
+    this.adminExists = ex !== false;
+    this.pending = 0;
+    if (this.isAdmin) {
+      const { count } = await this.sb.from("members").select("user_id", { count: "exact", head: true }).eq("status", "pending");
+      this.pending = count || 0;
+    }
+  },
+  async members() {
+    const { data, error } = await this.sb.from("members").select("user_id, nickname, status, role, joined_at, decided_at")
+      .order("joined_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  async decide(uid, approve) {
+    const { error } = await this.sb.rpc("decide_member", { target: uid, approve });
+    if (error) throw error;
+    await this.loadAdminState(); this.emit();
+  },
+  async setAdmin(uid, make) {
+    const { error } = await this.sb.rpc("set_admin", { target: uid, make });
+    if (error) throw error;
+  },
+  async claimAdmin() {
+    const { data, error } = await this.sb.rpc("claim_admin");
+    if (error) throw error;
+    await this.afterAuth();
+    return data;
   },
 
   // ---- 관심단지 · 메모: 로그인 시 서버 ↔ 이 기기 합치기 ----
