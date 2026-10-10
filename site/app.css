@@ -608,3 +608,9 @@ body.vm-open { overflow: hidden; }
 .lightbox .lb-x { position: absolute; top: calc(env(safe-area-inset-top) + 12px); right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.18); color: #fff; font-size: 18px; cursor: pointer; z-index: 2; }
 .lightbox .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: 0; border-radius: 12px; background: rgba(255,255,255,.14); color: #fff; font-size: 30px; cursor: pointer; z-index: 2; }
 .lightbox .lb-nav.prev { left: 8px; right: auto; } .lightbox .lb-nav.next { right: 8px; left: auto; }
+
+/* 안내 토스트 (뒤로가기 등) */
+#toast { position: fixed; left: 50%; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 24px); transform: translate(-50%, 20px); z-index: 5000;
+  background: rgba(25, 31, 40, .92); color: #fff; padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 600; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+#toast.on { opacity: 1; transform: translate(-50%, 0); }

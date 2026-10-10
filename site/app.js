@@ -226,7 +226,7 @@ async function init() {
   renderCmpBar();
   showTab(store.get("tab", "map"));
   const goTab = new URLSearchParams(location.search).get("tab");     // 예산 계산기에서 넘어올 때
-  if (goTab) { showTab(goTab); history.replaceState(null, "", location.pathname + location.hash); }
+  if (goTab) { showTab(goTab); history.replaceState(history.state, "", location.pathname + location.hash); }
   route();
 
   // 로그인 상태가 바뀌면 (로그인·가입·리마크 작성) 화면 갱신
@@ -1148,6 +1148,47 @@ async function renderAdmin() {
   draw();
 }
 
+// ---------- ◀ 뒤로가기 (안드로이드): 열린 것부터 닫고, 첫 화면에선 "한 번 더 누르면 종료" ----------
+// 기록 구조: [첫 화면(root)] [지킴이(guard)] [단지 상세 #c=… 등] [사진·임장 모드 같은 겹쳐 뜬 화면(ov)]
+const overlays = [];          // 겹쳐 뜬 화면 (뒤로가기로 닫힘): {name, onBack}
+let backSkip = 0, backWait = null, lastBack = 0;
+function pushOverlay(name, onBack) {
+  overlays.push({ name, onBack });
+  history.pushState({ ov: name }, "");
+}
+// 화면 안의 ✕·완료 버튼으로 닫을 때: 그 화면의 기록 칸도 함께 지움 (끝나면 resolve)
+function dropOverlay(name) {
+  const k = overlays.findIndex((o) => o.name === name);
+  if (k < 0) return Promise.resolve();
+  overlays.splice(k, 1);
+  backSkip++;
+  return new Promise((ok) => { backWait = ok; history.back(); });
+}
+function toast(msg, ms = 2000) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), ms);
+}
+function setupBack() {
+  if (!history.state?.guard) {
+    history.replaceState({ root: true }, "");      // 주소는 그대로 (카카오 로그인 후 돌아온 주소를 건드리지 않음)
+    history.pushState({ guard: true }, "");
+  }
+  window.addEventListener("popstate", (e) => {
+    if (backSkip) { backSkip--; backWait?.(); backWait = null; return; }
+    if (overlays.length) { overlays.pop().onBack(); return; }
+    if (!e.state?.root) return;                       // 단지 상세 등은 기존 방식(주소 #)으로 닫힘
+    // 첫 화면에서 뒤로가기: 지도 위에 떠 있는 것부터 닫기
+    const open = ["#peek", "#mq-panel", "#m-panel", "#m-sugg"].map((q) => $(q)).filter((el) => el && !el.hidden);
+    if (open.length) { open.forEach((el) => (el.hidden = true)); history.pushState({ guard: true }, ""); return; }
+    if (Date.now() - lastBack < 2000) { history.back(); return; }   // 2초 안에 한 번 더 → 앱 종료
+    lastBack = Date.now();
+    toast("뒤로가기를 한 번 더 누르면 종료돼요");
+    history.pushState({ guard: true }, "");
+  });
+}
+
 // ---------- 📸 임장 기록 ----------
 // 사진은 폰에서 줄여서(긴 변 1600px · 약 300KB, 미리보기 360px) 비공개 저장소에 올림. 줄이면서 촬영 위치 등 EXIF 정보는 사라짐
 const CHECKS = [["향", "동·향"], ["소음", "소음"], ["도보", "역까지 도보"], ["경사", "경사"], ["주차", "주차"], ["관리", "관리 상태"]];
@@ -1179,6 +1220,7 @@ async function openVisitMode(code) {
   Object.assign(vm, { on: true, code: code || null, near: null, photos: [], checks: {}, rating: 0, memo: "", shared: true, saving: false });
   $("#visit-mode").hidden = false;
   document.body.classList.add("vm-open");
+  pushOverlay("vm", vmBack);                         // 뒤로가기 = 나가기 (작성 중이면 확인)
   renderVisitMode();
   if (!code) findNearComplex();
 }
@@ -1280,7 +1322,7 @@ async function saveVisitMode() {
     await cloud.saveVisit({ complex_code: vm.code, rating: vm.rating || null, checks, memo: vm.memo.trim(), shared: vm.shared,
       photos: vm.photos.filter((p) => p.status === "ok").map((p) => p.path) });
     const code = vm.code;
-    closeVisitMode();
+    await closeVisitMode();
     state.visitCounts && (state.visitCounts[code] = (state.visitCounts[code] || 0) + 1);
     openDetail(code);
     setTimeout(() => $("#visits-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 600);
@@ -1289,17 +1331,29 @@ async function saveVisitMode() {
     alert("저장하지 못했어요: " + e.message);
   }
 }
-function exitVisitMode() {
-  const dirty = vm.photos.length || vm.memo.trim() || vm.rating || Object.values(vm.checks).some(Boolean);
-  if (dirty && !confirm("저장하지 않고 나갈까요? 올린 사진도 지워져요")) return;
-  cloud.removePhotos(vm.photos.filter((p) => p.path).map((p) => p.path)).catch(() => {});
-  closeVisitMode();
+function vmBack() {
+  if (vmDirty() && !confirm("저장하지 않고 나갈까요? 올린 사진도 지워져요")) return pushOverlay("vm", vmBack);   // 취소하면 그대로 머묾
+  discardVisit();
 }
-function closeVisitMode() {
+const vmDirty = () => vm.photos.length || vm.memo.trim() || vm.rating || Object.values(vm.checks).some(Boolean);
+function exitVisitMode() {
+  if (vmDirty() && !confirm("저장하지 않고 나갈까요? 올린 사진도 지워져요")) return;
+  dropOverlay("vm");
+  discardVisit();
+}
+function discardVisit() {
+  cloud.removePhotos(vm.photos.filter((p) => p.path).map((p) => p.path)).catch(() => {});
+  hideVisitMode();
+}
+function hideVisitMode() {
   vm.photos.forEach((p) => URL.revokeObjectURL(p.url));
   vm.on = false;
   $("#visit-mode").hidden = true;
   document.body.classList.remove("vm-open");
+}
+async function closeVisitMode() {       // 저장 후 닫기 (기록 칸 정리가 끝난 뒤 다음 화면으로)
+  hideVisitMode();
+  await dropOverlay("vm");
 }
 window.addEventListener("beforeunload", (e) => { if (vm.on && vm.photos.length) { e.preventDefault(); e.returnValue = ""; } });
 
@@ -1348,12 +1402,13 @@ async function showPhotos(list, start = 0) {
   box.className = "lightbox";
   box.innerHTML = `<div class="note" style="color:#fff">불러오는 중…</div>`;
   document.body.appendChild(box);
-  const close = () => { box.remove(); document.removeEventListener("keydown", onKey); };
+  const close = (fromBack) => { box.remove(); document.removeEventListener("keydown", onKey); if (fromBack !== true) dropOverlay("lb"); };
+  pushOverlay("lb", () => close(true));
   const onKey = (e) => { if (e.key === "Escape") close(); else if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1); };
   document.addEventListener("keydown", onKey);
   let urls;
   try { urls = await cloud.photoUrls(list.map(([p]) => p), false); }
-  catch (e) { box.innerHTML = `<div class="note" style="color:#fff">사진을 열지 못했어요</div>`; box.onclick = close; return; }
+  catch (e) { box.innerHTML = `<div class="note" style="color:#fff">사진을 열지 못했어요</div>`; box.onclick = () => close(); return; }
   let i = start;
   box.innerHTML = `<div class="lb-stage"><img alt="임장 사진"></div>
     <div class="lb-cap"></div>
@@ -1367,7 +1422,7 @@ async function showPhotos(list, start = 0) {
     for (const k of [i - 1, i + 1]) if (list[k]) new Image().src = urls[list[k][0]] || "";   // 옆 사진 미리 받아 두기
   };
   const go = (d) => { const n = i + d; if (n < 0 || n >= list.length) return; i = n; show(); };
-  box.querySelector(".lb-x").onclick = close;
+  box.querySelector(".lb-x").onclick = () => close();
   box.querySelector(".prev") && (box.querySelector(".prev").onclick = (e) => { e.stopPropagation(); go(-1); });
   box.querySelector(".next") && (box.querySelector(".next").onclick = (e) => { e.stopPropagation(); go(1); });
   stage.onclick = (e) => { if (e.target === stage) close(); };     // 사진 바깥 빈 곳 누르면 닫기
@@ -2087,4 +2142,5 @@ async function renderCompare() {
   };
 })();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+setupBack();
 boot();   // 🔒 승인 확인 → 승인된 멤버만 데이터 불러오기(init)
