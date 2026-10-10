@@ -1330,7 +1330,10 @@ async function renderVisitsCard(code) {
       ${(v.photos || []).length ? `<div class="vc-thumbs">${v.photos.map((p) => `<button class="vc-ph sm" data-full="${esc(p)}" style="background-image:url('${urls[p] || ""}')"></button>`).join("")}</div>` : ""}
     </div>`).join("")}`;
   $("#vc-add").onclick = () => openVisitMode(code);
-  $$("#visits-card [data-full]").forEach((b) => (b.onclick = () => showPhoto(b.dataset.full)));
+  // 사진을 누르면 이 단지의 모든 임장 사진을 넘겨 볼 수 있는 화면으로 (누른 사진부터)
+  const cap = ([p, v]) => `${fmtDay(v.visited_at)} · ${v.members?.nickname || ""}`;
+  $$("#visits-card [data-full]").forEach((b) => (b.onclick = () =>
+    showPhotos(all.map((x) => [x[0], cap(x)]), Math.max(0, all.findIndex(([p]) => p === b.dataset.full)))));
   $$("#visits-card [data-all]").forEach((b) => (b.onclick = () => $$("#visits-card .vc-thumbs")[0]?.scrollIntoView({ behavior: "smooth" })));
   $$("#visits-card [data-del]").forEach((b) => (b.onclick = async () => {
     const v = vs.find((x) => String(x.id) === b.dataset.del);
@@ -1339,16 +1342,51 @@ async function renderVisitsCard(code) {
     renderVisitsCard(code);
   }));
 }
-async function showPhoto(path) {
+// 사진 크게 보기 — 좌우로 밀거나 ‹ › 로 넘기기, ✕ 또는 바깥 누르면 닫기
+async function showPhotos(list, start = 0) {
   const box = document.createElement("div");
   box.className = "lightbox";
   box.innerHTML = `<div class="note" style="color:#fff">불러오는 중…</div>`;
-  box.onclick = () => box.remove();
   document.body.appendChild(box);
-  try {
-    const u = (await cloud.photoUrls([path], false))[path];
-    box.innerHTML = `<img src="${u}" alt="임장 사진"><button aria-label="닫기">✕</button>`;
-  } catch (e) { box.innerHTML = `<div class="note" style="color:#fff">사진을 열지 못했어요</div>`; }
+  const close = () => { box.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); else if (e.key === "ArrowRight") go(1); else if (e.key === "ArrowLeft") go(-1); };
+  document.addEventListener("keydown", onKey);
+  let urls;
+  try { urls = await cloud.photoUrls(list.map(([p]) => p), false); }
+  catch (e) { box.innerHTML = `<div class="note" style="color:#fff">사진을 열지 못했어요</div>`; box.onclick = close; return; }
+  let i = start;
+  box.innerHTML = `<div class="lb-stage"><img alt="임장 사진"></div>
+    <div class="lb-cap"></div>
+    <button class="lb-x" aria-label="닫기">✕</button>
+    ${list.length > 1 ? `<button class="lb-nav prev" aria-label="이전 사진">‹</button><button class="lb-nav next" aria-label="다음 사진">›</button>` : ""}`;
+  const img = box.querySelector("img"), stage = box.querySelector(".lb-stage");
+  const show = () => {
+    img.style.transition = "none"; img.style.transform = "";
+    img.src = urls[list[i][0]] || "";
+    box.querySelector(".lb-cap").textContent = `${list.length > 1 ? `${i + 1} / ${list.length} · ` : ""}${list[i][1] || ""}`;
+    for (const k of [i - 1, i + 1]) if (list[k]) new Image().src = urls[list[k][0]] || "";   // 옆 사진 미리 받아 두기
+  };
+  const go = (d) => { const n = i + d; if (n < 0 || n >= list.length) return; i = n; show(); };
+  box.querySelector(".lb-x").onclick = close;
+  box.querySelector(".prev") && (box.querySelector(".prev").onclick = (e) => { e.stopPropagation(); go(-1); });
+  box.querySelector(".next") && (box.querySelector(".next").onclick = (e) => { e.stopPropagation(); go(1); });
+  stage.onclick = (e) => { if (e.target === stage) close(); };     // 사진 바깥 빈 곳 누르면 닫기
+  // 손가락으로 밀기
+  let x0 = null, y0 = 0, dx = 0;
+  stage.addEventListener("touchstart", (e) => { if (e.touches.length !== 1) return; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; img.style.transition = "none"; }, { passive: true });
+  stage.addEventListener("touchmove", (e) => {
+    if (x0 == null) return;
+    dx = e.touches[0].clientX - x0;
+    if (Math.abs(dx) > Math.abs(e.touches[0].clientY - y0)) img.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  stage.addEventListener("touchend", () => {
+    if (x0 == null) return;
+    x0 = null;
+    const atEdge = (dx > 0 && i === 0) || (dx < 0 && i === list.length - 1);
+    if (Math.abs(dx) > 50 && !atEdge) go(dx < 0 ? 1 : -1);
+    else { img.style.transition = "transform .2s"; img.style.transform = ""; }
+  });
+  show();
 }
 
 // ---------- 라우팅 (#c=단지코드 / #s=청약공고 / #cmp / #join) ----------
