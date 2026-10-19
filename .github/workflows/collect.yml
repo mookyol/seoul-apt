@@ -6,6 +6,7 @@ name: 실거래가 수집
 on:
   schedule:
     - cron: "0 18 * * *"   # UTC 18시 = 한국 새벽 3시
+    - cron: "0 23 * * *"   # 한국 아침 8시 — 새벽 수집이 실패했을 때만 다시 (성공했으면 바로 끝남)
   workflow_dispatch:
     inputs:
       dataset:
@@ -32,7 +33,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 아침 8시 예비 실행: 새벽 3시 수집이 성공했으면 건너뜀
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.chk.outputs.skip }}
+    steps:
+      - id: chk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event.schedule }}" != "0 23 * * *" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          last=$(gh run list -w collect.yml -L 10 --json databaseId,conclusion,event,createdAt             -q "[.[] | select(.databaseId != ${{ github.run_id }} and .event == \"schedule\")][0].conclusion")
+          echo "직전 정기 수집 결과: $last"
+          if [ "$last" = "success" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+
   collect:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:

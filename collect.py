@@ -100,7 +100,10 @@ def load_key():
     return unquote(key) if "%" in key else key
 
 
-def fetch_page(url, key, lawd_cd, ym, page, retries=3):
+WAITS = [15, 45, 120, 300]    # 접속 실패 시 기다리는 초 (공공데이터 서버 점검·일시 장애를 넘기기 위해 점점 길게, 최대 약 8분)
+
+
+def fetch_page(url, key, lawd_cd, ym, page, retries=len(WAITS) + 1):
     params = {"serviceKey": key, "LAWD_CD": lawd_cd, "DEAL_YMD": ym,
               "numOfRows": 1000, "pageNo": page}
     for attempt in range(1, retries + 1):
@@ -116,8 +119,10 @@ def fetch_page(url, key, lawd_cd, ym, page, retries=3):
         except Exception as e:
             if attempt == retries:
                 raise
-            print(f"    재시도 {attempt}/{retries - 1} ({e})")
-            time.sleep(2 * attempt)
+            net = isinstance(e, requests.exceptions.RequestException)   # 접속 문제면 길게, API 응답 오류면 짧게
+            wait = WAITS[attempt - 1] if net else 2 * attempt
+            print(f"    재시도 {attempt}/{retries - 1} — {wait}초 뒤 ({e})", flush=True)
+            time.sleep(wait)
 
 
 def fetch_gu_month(ds, key, gu, lawd_cd, ym):
